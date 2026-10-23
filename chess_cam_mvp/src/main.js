@@ -67,6 +67,7 @@ function handleSquare(square){
   }else{ selected=null;renderBoard(); }
 }
 function resetAnalysis(){
+  vision.setSuggestedMove(null);
   analyzeLines=[];lastDepth=0;lastEngineFen=null;
   $('eval-number').textContent='—';$('eval-side').textContent='—';$('best-move').textContent='—';
   $('best-detail').textContent='جارٍ البحث عن أفضل نقلة';$('top-lines').innerHTML='<div class="empty-line">جارٍ التحليل…</div>';
@@ -132,6 +133,7 @@ function renderAnalysis(){
     row.append(name,score);$('top-lines').appendChild(row);
   });
   renderBoard();
+  vision.setSuggestedMove(best.move);
 }
 function setCameraButtons(){
   const on=!!vision.stream,ready=vision.corners.length===4,ref=!!vision.reference;
@@ -139,6 +141,7 @@ function setCameraButtons(){
   $('camera-state').textContent=on?'بث مباشر':'الكاميرا متوقفة';
   $('calibrate').disabled=!on;$('baseline').disabled=!on||!ready;
   $('detect').disabled=!on||!ref;$('auto-scan').disabled=!on||!ref;
+  $('expand-video').disabled=!on;
 }
 function hideSuggestion(){$('vision-suggestion').hidden=true;pendingMove=null;}
 function readCamera(silent=false){
@@ -147,7 +150,7 @@ function readCamera(silent=false){
     const result=vision.propose(game);
     if(!result.credible){
       stableHits=0;stableKey='';
-      if(!silent)$('vision-message').textContent=result.message;
+      if(!silent||result.unstable)$('vision-message').textContent=result.message;
       return;
     }
     const m=result.top;
@@ -167,7 +170,7 @@ function readCamera(silent=false){
 $('start-camera').addEventListener('click',async()=>{
   const btn=$('start-camera');btn.disabled=true;
   try{
-    if(vision.stream){vision.stop();autoScan=false;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
+    if(vision.stream){$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
     else await vision.start();
   }catch(err){$('vision-message').textContent='تعذر تشغيل الكاميرا: '+String(err.message);}
   finally{btn.disabled=false;setCameraButtons();}
@@ -184,6 +187,12 @@ $('camera-overlay').addEventListener('click',e=>{
 $('baseline').addEventListener('click',()=>{try{vision.saveReference();hideSuggestion();setCameraButtons();}catch(e){$('vision-message').textContent=e.message;}});
 $('detect').addEventListener('click',()=>readCamera(false));
 $('auto-scan').addEventListener('change',e=>{autoScan=e.target.checked;stableHits=0;stableKey='';});
+$('ar-overlay').addEventListener('change',e=>vision.setArEnabled(e.target.checked));
+$('expand-video').addEventListener('click',()=>{
+  const expanded=$('video-stage').classList.toggle('expanded');
+  $('expand-video').textContent=expanded?'تصغير الفيديو':'تكبير الفيديو';
+  document.body.classList.toggle('camera-expanded',expanded);
+});
 $('accept-suggestion').addEventListener('click',()=>{if(pendingMove){const move=pendingMove;playMove(move,'camera');}});
 $('reject-suggestion').addEventListener('click',()=>{hideSuggestion();$('vision-message').textContent='تم تجاهل الاقتراح. يمكنك إعادة قراءة النقلة أو تصحيحها من اللوحة.';});
 $('my-side').addEventListener('change',e=>{
