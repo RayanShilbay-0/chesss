@@ -1,0 +1,21 @@
+{
+  "name": "chess-cam-ar-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-engine.mjs",
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/copy-engine.mjs",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "node --check src/main.js && node --check src/vision.js && node --check src/engine.js"
+  },
+  "dependencies": {
+    "chess.js": "1.4.0",
+    "stockfish": "19.0.1"
+  },
+  "devDependencies": {
+    "vite": "^6.4.0"
+  }
+}

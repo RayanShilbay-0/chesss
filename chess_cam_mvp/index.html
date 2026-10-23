@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#101c20" />
+  <meta name="description" content="استوديو تدريب وتحليل شطرنج بكاميرا الهاتف ومحرك Stockfish." />
+  <title>ChessCam | تحليل الشطرنج بالكاميرا</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+ <header class="topbar">
+   <div class="brand"><span class="brandmark">♞</span><div><strong>ChessCam</strong><small>مختبر الشطرنج الذكي</small></div></div>
+   <div class="top-pill" id="connection-pill"><span class="dot amber"></span><span id="engine-health">جاري تجهيز المحرك</span></div>
+ </header>
+ <main class="shell">
+  <section class="intro">
+   <span class="eyebrow">تجربة أولية · إصدار 0.1</span>
+   <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
+   <p>صوّر رقعة الشطرنج الحقيقية من الأعلى، أو حرّك القطع على اللوحة الرقمية، وشاهد اقتراحات Stockfish مع تقييم الوضعية.</p>
+  </section>
+  <section class="workspace">
+   <div class="panel camera-panel">
+     <div class="panel-title"><div><span class="section-kicker">01 / الرؤية</span><h2>كاميرا الرقعة</h2></div><span class="chip" id="camera-state">الكاميرا متوقفة</span></div>
+     <div class="video-stage" id="video-stage">
+       <video id="camera" playsinline muted autoplay aria-label="بث مباشر لرقعة الشطرنج"></video>
+       <canvas id="camera-overlay" aria-label="اختر زوايا الرقعة بالترتيب على الصورة"></canvas>
+       <div class="camera-empty" id="camera-empty"><span class="camera-icon">◎</span><b>الرقعة تبدأ من هنا</b><small>شغّل الكاميرا وثبّت الهاتف بحيث تظهر الرقعة كاملة</small></div>
+       <span class="camera-watermark" id="camera-watermark">CAM 01 · LIVE</span>
+     </div>
+     <div class="camera-actions">
+      <button class="primary" id="start-camera">تشغيل الكاميرا</button>
+      <button class="secondary" id="calibrate" disabled>تحديد زوايا الرقعة</button>
+     </div>
+     <div class="camera-actions">
+      <button class="secondary" id="baseline" disabled>حفظ الوضع الحالي</button>
+      <button class="secondary" id="detect" disabled>قراءة النقلة بالكاميرا</button>
+     </div>
+     <div class="toggle-line"><label for="auto-scan">المراقبة التلقائية التجريبية</label><input type="checkbox" id="auto-scan" disabled /></div>
+     <p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
+     <div id="vision-suggestion" class="suggestion" hidden>
+       <div><strong id="suggestion-title">نقلة محتملة</strong><small id="suggestion-desc"></small></div>
+       <div class="suggestion-actions"><button class="primary" id="accept-suggestion">اعتماد النقلة</button><button class="ghost" id="reject-suggestion">إلغاء</button></div>
+     </div>
+   </div>
+   <div class="panel chess-panel">
+     <div class="panel-title"><div><span class="section-kicker">02 / اللعبة</span><h2>اللوحة والتحليل</h2></div><select id="my-side" aria-label="جهة اللعب"><option value="w">ألعب بالأبيض</option><option value="b">ألعب بالأسود</option></select></div>
+     <div class="board-wrap"><div class="board" id="board" aria-label="لوحة شطرنج تفاعلية"></div></div>
+     <div class="statusline"><span id="turn-status">الدور للأبيض</span><span id="move-count">النقلة 1</span></div>
+     <div class="game-actions"><button class="secondary" id="undo">تراجع</button><button class="secondary" id="reset">مباراة جديدة</button><button class="secondary" id="copy-pgn">نسخ المباراة</button></div>
+   </div>
+   <div class="panel analysis-panel">
+     <div class="panel-title"><div><span class="section-kicker">03 / العقل</span><h2>تحليل Stockfish</h2></div><span class="chip green" id="analysis-state">تهيئة</span></div>
+     <div class="recommendation">
+      <div class="evaluation-top"><div><small>التقييم لصالح</small><strong id="eval-side">—</strong></div><div class="eval-big" id="eval-number">—</div></div>
+      <div class="eval-meter"><div class="eval-meter-fill" id="eval-fill"></div></div>
+      <span class="section-kicker recommendation-kicker">أفضل نقلة في الوضعية الحالية</span>
+      <div class="move-feature"><strong id="best-move">—</strong><span id="best-detail">جارٍ تجهيز التحليل</span></div>
+     </div>
+     <div class="lines-heading"><strong>أقوى 3 خيارات</strong><small>قد تظهر خيارات أقل حسب التحليل</small></div>
+     <div class="lines" id="top-lines"><div class="empty-line">بانتظار المحرك…</div></div>
+     <p class="helper">التحليل يعمل على الوضعية الرقمية. عند رصد نقلة بالكاميرا، راجعها واعتمدها ليُحدَّث التقييم.</p>
+   </div>
+  </section>
+  <section class="guide">
+   <div><span class="section-kicker">الطريقة الصحيحة</span><h2>3 خطوات قبل أول مباراة</h2></div>
+   <div class="guide-grid"><div><span>01</span><b>ثبّت الهاتف</b><p>وجّه الكاميرا من الأعلى وثبّت الإضاءة. أبعد يديك قبل قراءة أي نقلة.</p></div><div><span>02</span><b>حدّد الزوايا</b><p>اضغط على زوايا الرقعة بالترتيب: أعلى يسار، أعلى يمين، أسفل يمين، أسفل يسار.</p></div><div><span>03</span><b>احفظ البداية</b><p>قبل أول نقلة احفظ الصورة المرجعية. بعدها يمكن قراءة النقلة والتأكد منها.</p></div></div>
+  </section>
+  <footer>ChessCam · أداة تدريب وتجربة رؤية حاسوبية · دقة الكاميرا غير مضمونة حتى يتم اختبارها على رقعتك.</footer>
+ </main>
+ <script type="module" src="/src/main.js"></script>
+</body>
+</html>
