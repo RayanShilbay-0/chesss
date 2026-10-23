@@ -15,9 +15,9 @@
  </header>
  <main class="shell">
   <section class="intro">
-   <span class="eyebrow">تجربة أولية · إصدار 0.1</span>
+   <span class="eyebrow">نسخة 0.2 · واقع معزز على الفيديو</span>
    <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
-   <p>صوّر رقعة الشطرنج الحقيقية من الأعلى، أو حرّك القطع على اللوحة الرقمية، وشاهد اقتراحات Stockfish مع تقييم الوضعية.</p>
+   <p>ثبّت الكاميرا أمام رقعة حقيقية، وحدّد زواياها، وشاهد سهم أفضل نقلة مباشرة فوق الفيديو. قراءة النقلات تعتمد على تتبّع التغيّر ولم تصل بعد لدقة نموذج تعرّف مدرّب على القطع.</p>
   </section>
   <section class="workspace">
    <div class="panel camera-panel">
@@ -37,6 +37,8 @@
       <button class="secondary" id="detect" disabled>قراءة النقلة بالكاميرا</button>
      </div>
      <div class="toggle-line"><label for="auto-scan">المراقبة التلقائية التجريبية</label><input type="checkbox" id="auto-scan" disabled /></div>
+     <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
+     <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
      <p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
      <div id="vision-suggestion" class="suggestion" hidden>
        <div><strong id="suggestion-title">نقلة محتملة</strong><small id="suggestion-desc"></small></div>
@@ -59,14 +61,14 @@
      </div>
      <div class="lines-heading"><strong>أقوى 3 خيارات</strong><small>قد تظهر خيارات أقل حسب التحليل</small></div>
      <div class="lines" id="top-lines"><div class="empty-line">بانتظار المحرك…</div></div>
-     <p class="helper">التحليل يعمل على الوضعية الرقمية. عند رصد نقلة بالكاميرا، راجعها واعتمدها ليُحدَّث التقييم.</p>
+     <p class="helper">يظهر السهم على بث الكاميرا، لكنه يعتمد على تطابق اللوحة الرقمية مع الرقعة الحقيقية. الأسهم منظورّية 2.5D، وليست نموذج عمق ثلاثي الأبعاد.</p>
    </div>
   </section>
   <section class="guide">
    <div><span class="section-kicker">الطريقة الصحيحة</span><h2>3 خطوات قبل أول مباراة</h2></div>
    <div class="guide-grid"><div><span>01</span><b>ثبّت الهاتف</b><p>وجّه الكاميرا من الأعلى وثبّت الإضاءة. أبعد يديك قبل قراءة أي نقلة.</p></div><div><span>02</span><b>حدّد الزوايا</b><p>اضغط على زوايا الرقعة بالترتيب: أعلى يسار، أعلى يمين، أسفل يمين، أسفل يسار.</p></div><div><span>03</span><b>احفظ البداية</b><p>قبل أول نقلة احفظ الصورة المرجعية. بعدها يمكن قراءة النقلة والتأكد منها.</p></div></div>
   </section>
-  <footer>ChessCam · أداة تدريب وتجربة رؤية حاسوبية · دقة الكاميرا غير مضمونة حتى يتم اختبارها على رقعتك.</footer>
+  <footer>ChessCam · أداة تدريب وتجربة رؤية حاسوبية · الرؤية وتجربة AR ما زالتا تجريبيتين. كاميرا ثابتة وإضاءة مستقرة وبدء اللعبة من الوضعية الصحيحة أمور ضرورية.</footer>
  </main>
  <script type="module" src="/src/main.js"></script>
 </body>
