@@ -142,6 +142,7 @@ function setCameraButtons(){
   $('calibrate').disabled=!on;$('baseline').disabled=!on||!ready;
   $('detect').disabled=!on||!ref;$('auto-scan').disabled=!on||!ref;
   $('expand-video').disabled=!on;
+  $('auto-accept').disabled=!on||!ref;
 }
 function hideSuggestion(){$('vision-suggestion').hidden=true;pendingMove=null;}
 function readCamera(silent=false){
@@ -159,7 +160,13 @@ function readCamera(silent=false){
       stableHits=stableKey===key?stableHits+1:1;stableKey=key;
       if(stableHits<3)return;
     }
-    stableHits=0;stableKey='';pendingMove={from:m.from,to:m.to,promotion:m.promotion||'q'};
+    stableHits=0;stableKey='';
+    const candidate={from:m.from,to:m.to,promotion:m.promotion||'q'};
+    if(silent&&$('auto-accept').checked){
+      playMove(candidate,'camera');
+      return;
+    }
+    pendingMove=candidate;
     $('suggestion-title').textContent=`نقلة محتملة: ${m.san}`;
     $('suggestion-desc').textContent=`من ${m.from} إلى ${m.to} · يجب تأكيدها لأن القراءة بالكاميرا تجريبية.`;
     $('vision-suggestion').hidden=false;
