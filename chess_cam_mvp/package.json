@@ -4,17 +4,19 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-engine.mjs",
+    "predev": "node scripts/copy-ai-model.mjs && node scripts/copy-engine.mjs",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "node scripts/copy-engine.mjs",
+    "prebuild": "node scripts/copy-ai-model.mjs && node scripts/copy-engine.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "check": "node --check src/main.js && node --check src/vision.js && node --check src/detector.js && node --check src/engine.js && node --test tests/detector.test.mjs",
+    "check": "node --check src/main.js && node --check src/vision.js && node --check src/detector.js && node --check src/engine.js && node --test tests/detector.test.mjs && node --test tests/model-moves.test.mjs",
     "test:e2e": "node tests/browser.e2e.mjs"
   },
   "dependencies": {
     "chess.js": "1.4.0",
-    "stockfish": "19.0.1"
+    "stockfish": "19.0.1",
+    "@scoriiu/fenshot": "0.1.5",
+    "onnxruntime-web": "1.26.0"
   },
   "devDependencies": {
     "vite": "^6.4.0"
