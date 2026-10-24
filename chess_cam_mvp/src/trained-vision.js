@@ -1,5 +1,8 @@
 import { boardToTiles } from '@scoriiu/fenshot';
 import { inferMovesFromModel, decodedPosition } from './model-moves.js';
+import ortJsUrl from 'onnxruntime-web/dist/ort-wasm-simd-threaded.mjs?url';
+import ortWasmUrl from 'onnxruntime-web/dist/ort-wasm-simd-threaded.wasm?url';
+export function wasmAssetUrls(){return {mjs:new URL(ortJsUrl,location.href).href,wasm:new URL(ortWasmUrl,location.href).href};}
 
 const OUT_SIZE=256;
 export class TrainedChessVision {
@@ -8,7 +11,7 @@ export class TrainedChessVision {
     if(!this.sessionPromise){
       this.sessionPromise=(async()=>{
         const ort=await import('onnxruntime-web/wasm');
-        ort.env.wasm.wasmPaths=(import.meta.env.BASE_URL||'/')+'ort/';
+        ort.env.wasm.wasmPaths=wasmAssetUrls();
         ort.env.wasm.numThreads=1;
         const session=await ort.InferenceSession.create(
           (import.meta.env.BASE_URL||'/')+'models/chess-tiles-v2.onnx',
