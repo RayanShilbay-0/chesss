@@ -8,6 +8,7 @@ let mySide='w',selected=null,pendingMove=null,analyzeLines=[],lastDepth=0,engine
 let lastEngineFen=null,autoScan=false,stableKey='',stableHits=0,autoInterval=null;
 let lastScanStatus='',lastReadAt=0,lastRecognizedAt=0,unmatchedSince=0;
 let warningNoSync=false,pendingSince=0,cameraError='';
+let lastAutomaticRefresh=0;
 const glyph={w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟︎'}};
 const files='abcdefgh';
 const arPieces={p:'بيدق',n:'حصان',b:'فيل',r:'قلعة',q:'وزير',k:'ملك'};
@@ -166,7 +167,8 @@ function setCameraButtons(){
   $('resync').disabled=!on||!ready;
   $('capture-status').textContent=!on?'الكاميرا غير متصلة':
     'آخر فحص: '+(lastReadAt?new Date(lastReadAt).toLocaleTimeString('ar-JO'):'لم يبدأ')+
-    ' | آخر نقلات مؤكدة: '+(lastRecognizedAt?new Date(lastRecognizedAt).toLocaleTimeString('ar-JO'):'لا يوجد');
+    ' | آخر نقلات مؤكدة: '+(lastRecognizedAt?new Date(lastRecognizedAt).toLocaleTimeString('ar-JO'):'لا يوجد')+
+    ' | تجديد تلقائي: '+(lastAutomaticRefresh?new Date(lastAutomaticRefresh).toLocaleTimeString('ar-JO'):'لم يحدث بعد');
 }
 function hideSuggestion(){$('vision-suggestion').hidden=true;pendingMove=null;pendingSince=0;}
 function playCameraSequence(sequence){
@@ -203,6 +205,16 @@ function readCamera(silent=false){
     lastReadAt=Date.now();
     cameraError='';
     if(!result.credible){
+      // Safe periodic auto-recovery. This never discards real move evidence
+      // unless the observed board still agrees with the digital position.
+      const refreshed=vision.autoRefresh(game,result);
+      if(refreshed.ok){
+        lastAutomaticRefresh=Date.now();unmatchedSince=0;warningNoSync=false;
+        stableKey='';stableHits=0;lastScanStatus='refresh';
+        $('vision-message').textContent='تجديد المرجع تلقائيًا بعد التأكد من ثبات نفس وضعية القطع. استمرار المراقبة دون تدخل.';
+        setCameraButtons();
+        return;
+      }
       stableHits=0;stableKey='';
       if((result.changed||0)>=2){
         vision.setSuggestedMove(null);
@@ -364,6 +376,6 @@ document.addEventListener('visibilitychange',()=>{
 autoInterval=setInterval(()=>{
   if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen'))readCamera(true);
   setCameraButtons();
-},1100);
+},700);
 window.addEventListener('pagehide',()=>{vision.stop();engine.close();if(autoInterval)clearInterval(autoInterval);});
 renderBoard();setCameraButtons();resetAnalysis();engine.init();engine.analyze(game.fen());

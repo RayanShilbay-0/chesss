@@ -15,7 +15,7 @@
  </header>
  <main class="shell">
   <section class="intro">
-   <span class="eyebrow">نسخة 0.6 · رؤية قطع الخصم ومشاركة شاشة الكمبيوتر</span>
+   <span class="eyebrow">نسخة 0.7 · تجديد آمن للمرجع تلقائيًا</span>
    <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
    <p>للتجربة ضد بوت على الكمبيوتر: شارك نافذة الشطرنج مباشرة لتقليل أخطاء تصوير الشاشة. وللرقعة الحقيقية استخدم كاميرا الهاتف. يجمع التتبع بين مقارنة الصور ومحاولة اكتشاف القطع على المربعات، وما زال تجريبيًا.</p>
   </section>
@@ -51,6 +51,7 @@
      <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
      <div class="toggle-line"><label for="auto-accept">اعتماد النقلات المؤكدة تلقائيًا (تجريبي)</label><input type="checkbox" id="auto-accept" disabled /></div>
      <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
+     <p class="helper">يتجدد المرجع تلقائيًا كل بضع ثوانٍ <strong>فقط عند التحقق أن وضعية القطع لم تتغير</strong>. لا يمكن للنظام أن يمحو نقلة لم يقرأها لمجرد مرور الوقت. أُسرع الفحص إلى كل 0.7 ثانية تقريبًا أثناء نشاط الصفحة.</p>
      <p class="helper">إذا ظهر «بانتظار الاعتماد»، لن يقرأ البرنامج نقلة أخرى حتى تقبل أو ترفض الاقتراح. وإذا اختلفت الرقعتان، صحح الوضعية ثم استخدم «استعادة المزامنة»؛ لا تُعِد حفظ المرجع مع رقعتين مختلفتين.</p>
      <p class="helper">تنبيه: السهم الأخضر هو اقتراح المحرك، وليس دليلًا أن الكاميرا قرأت حركة. يجب بدء الرقعتين من نفس الوضعية، وحفظ المرجع قبل النقلة التالية.</p><p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
      <div id="vision-suggestion" class="suggestion" hidden>

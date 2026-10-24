@@ -1,4 +1,5 @@
 import { recognizeSequence } from './detector.js';
+import { shouldRefreshBaseline } from './tracking-policy.js';
 // Camera observation, NOT a trained piece recognizer. Detects changed squares between stable snapshots,
 // then proposes a legal move based on those changes. Requires a fixed overhead camera.
 const file='abcdefgh';
@@ -18,6 +19,7 @@ export class CameraVision {
    this.side='w';this.latestFeatures=null;this.lastScan=null;
    this.arEnabled=true;this.arMove=null;this.frozenFrame=null;
    this.occupancyModel=null;this.referenceSetAt=0;this.sourceKind='camera';
+   this.stillFrames=0;this.autoRefreshCount=0;this.latestMotion=null;
  }
  async start(){
    if(!navigator.mediaDevices?.getUserMedia)
@@ -50,7 +52,7 @@ export class CameraVision {
      this.stage.style.aspectRatio=`${w} / ${h}`;
      this.stage.classList.add('playing');
      this.calibrating=false;this.corners=[];this.reference=null;
-     this.lastScan=null;this.latestFeatures=null;this.occupancyModel=null;
+     this.lastScan=null;this.latestFeatures=null;this.occupancyModel=null;this.stillFrames=0;this.latestMotion=null;
      stream.getVideoTracks()[0]?.addEventListener('ended',()=>{
        if(this.stream===stream){
          this.stop();
@@ -69,6 +71,7 @@ export class CameraVision {
  stop(){
    this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;
    this.video.srcObject=null;this.reference=null;this.latestFeatures=null;this.occupancyModel=null;this.referenceSetAt=0;
+   this.stillFrames=0;this.latestMotion=null;
    this.calibrating=false;this.corners=[];this.arMove=null;this.lastScan=null;this.drawOverlay();
    this.sourceKind='camera';
    this.stage.classList.remove('playing');
@@ -82,6 +85,7 @@ export class CameraVision {
  beginCalibration(){
    if(!this.stream)throw Error('شغّل الكاميرا أولًا.');
    this.reference=null;this.lastScan=null;this.occupancyModel=null;this.calibrating=true;this.corners=[];
+   this.stillFrames=0;this.latestMotion=null;
    this.frozenFrame=this.frame();
    this.stage.classList.add('calibrating');
    this.message('اضغط على الزوايا بالترتيب: أعلى يسار ← أعلى يمين ← أسفل يمين ← أسفل يسار.');
@@ -280,6 +284,7 @@ export class CameraVision {
    const model=game?this.modelFor(features,game):null;
    this.reference=features;this.occupancyModel=model;
    this.lastScan=null;this.latestFeatures=null;this.referenceSetAt=Date.now();
+   this.stillFrames=0;this.latestMotion=null;
    if(model?.reliable&&model.baselineMismatch>=4)
      this.message('تحذير: يبدو أن توزيع القطع في كاميرا الرقعة يختلف عن اللوحة الرقمية. لن تكون التحليلات موثوقة قبل تصحيح الوضعيتين.');
    else this.message('تم حفظ الصورة المرجعية. المراقبة تقارن شكل القطع وتغيّر المربعات من هذه اللحظة.');
@@ -294,6 +299,9 @@ export class CameraVision {
    const changed=scores.filter(s=>s>threshold).length;
    const currentOccupancy=this.occupancyScores(current);
    const motion=this.lastScan?this.difference(this.lastScan,current):null;
+   const still=Boolean(motion&&motion.filter(x=>x>7).length<=2&&quantile(motion,.85)<5);
+   this.stillFrames=still?this.stillFrames+1:0;
+   this.latestMotion=motion;
    this.lastScan=current;
    if(changed>12||(motion&&changed>=5&&motion.filter(x=>x>Math.max(11,median(motion)*2.8)).length>12)){
      this.latestFeatures=current;
@@ -324,14 +332,56 @@ export class CameraVision {
      message:'الكاميرا رصدت تغيّرًا لكن لم تطابقه بثقة مع تسلسل النقلات القانونية. تأكد من مطابقة لوحة ChessCam للرقعة المصورة.'};
  }
 
+ // Verifies agreement with the CURRENT legal game state; never guesses moves
+ // by periodically discarding unprocessed video differences.
+ referenceAgreement(game,features){
+   const model=this.occupancyModel;
+   if(!model?.reliable||!features)return {reliable:false,mismatches:64,confident:0};
+   const values=this.occupancyScores(features);
+   const occupied=game.board().flat().map(Boolean);
+   let mismatches=0,confident=0;
+   for(let i=0;i<64;i++){
+     if(values[i]<model.threshold-model.guard){
+       confident++;if(occupied[i])mismatches++;
+     }else if(values[i]>model.threshold+model.guard){
+       confident++;if(!occupied[i])mismatches++;
+     }
+   }
+   return {reliable:true,mismatches,confident};
+ }
+ autoRefresh(game,{credible=false,changed=0,unstable=false}={},now=Date.now()){
+   if(!this.reference||!this.latestFeatures||!game||unstable)
+     return {ok:false,reason:'unavailable'};
+   const agreement=this.referenceAgreement(game,this.latestFeatures);
+   const strengths=this.difference(this.reference,this.latestFeatures);
+   const near=quantile(strengths,.95)<1.5;
+   const gate=shouldRefreshBaseline({
+     ageMs:now-this.referenceSetAt,stableFrames:this.stillFrames,
+     pending:false,credible,inMotion:unstable,
+     changed,reliable:agreement.reliable,mismatches:agreement.mismatches,
+     confident:agreement.confident,nearlyIdentical:near
+   });
+   if(!gate.ok)return gate;
+   // Use the exact frame that was verified, not a later camera frame where
+   // the opponent may already have made another move.
+   const snap=this.latestFeatures;
+   const model=this.modelFor(snap,game);
+   if(model?.reliable&&model.baselineMismatch>=3)
+     return {ok:false,reason:'calibration-mismatch'};
+   this.reference=snap;this.occupancyModel=model;
+   this.lastScan=snap;this.latestMotion=null;this.stillFrames=0;
+   this.referenceSetAt=now;this.autoRefreshCount++;
+   return {ok:true,reason:gate.reason,count:this.autoRefreshCount};
+ }
  syncReference(game){
    if(!this.stream||this.corners.length!==4||this.calibrating)return {ok:false,reason:'camera'};
-   // Never use the old last-scanned frame after the user confirms a move:
-   // by then the chess bot may have replied again.
-   const now=this.features(this.frame());
+   // The frame that yielded the recognized move is the authoritative baseline.
+   // Recapturing later could accidentally swallow the bot's NEXT move.
+   const now=this.latestFeatures||this.features(this.frame());
    const model=game?this.modelFor(now,game):null;
    this.reference=now;this.occupancyModel=model;this.latestFeatures=null;
-   this.lastScan=null;this.referenceSetAt=Date.now();
+   this.lastScan=now;this.referenceSetAt=Date.now();
+   this.stillFrames=0;this.latestMotion=null;
    if(model?.reliable&&model.baselineMismatch>=4)
      return {ok:false,reason:'mismatch',count:model.baselineMismatch};
    return {ok:true,model};

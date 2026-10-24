@@ -97,3 +97,41 @@ test('visual classifier separates occupied and empty squares on digital chessboa
  assert(model.reliable,JSON.stringify(model));
  assert(model.baselineMismatch<=2,JSON.stringify(model));
 });
+
+import { shouldRefreshBaseline } from '../src/tracking-policy.js';
+const eligible=(changes={})=>({
+  ageMs:4000,stableFrames:3,pending:false,credible:false,inMotion:false,
+  changed:5,reliable:true,mismatches:0,confident:60,nearlyIdentical:false,
+  ...changes
+});
+test('safe periodic refresh only when board occupancy still matches',()=>{
+ assert(shouldRefreshBaseline(eligible()).ok);
+ assert(!shouldRefreshBaseline(eligible({mismatches:2})).ok);
+ assert(!shouldRefreshBaseline(eligible({changed:14})).ok);
+ assert(!shouldRefreshBaseline(eligible({reliable:false,changed:5})).ok);
+});
+test('do not swallow a moving opponent piece or a pending recognized move',()=>{
+ assert(!shouldRefreshBaseline(eligible({inMotion:true})).ok);
+ assert(!shouldRefreshBaseline(eligible({stableFrames:1})).ok);
+ assert(!shouldRefreshBaseline(eligible({pending:true})).ok);
+ assert(!shouldRefreshBaseline(eligible({credible:true})).ok);
+ assert(!shouldRefreshBaseline(eligible({ageMs:900})).ok);
+});
+test('when occupancy unavailable allow only virtually identical noise',()=>{
+ assert(shouldRefreshBaseline(eligible({reliable:false,changed:0,nearlyIdentical:true})).ok);
+ assert(!shouldRefreshBaseline(eligible({reliable:false,changed:1,nearlyIdentical:true})).ok);
+});
+test('recognized moves use last analyzed frame for reference, preserving later bot replies',()=>{
+ const cam=Object.create(CameraVision.prototype);
+ cam.stream={};cam.corners=[{},{},{},{}];cam.calibrating=false;
+ const old=Array.from({length:64},()=>[]);
+ const recognized=Array.from({length:64},()=>[[5,5,5]]);
+ cam.latestFeatures=recognized;cam.occupancyModel=null;cam.frame=()=>{throw Error('should not capture a new bot reply frame');};
+ cam.features=()=>{throw Error('should not re-extract a live bot reply frame');};
+ cam.modelFor=()=>({reliable:false,baselineMismatch:0});
+ const r=cam.syncReference(new Chess());
+ assert.equal(r.ok,true);
+ assert.equal(cam.reference,recognized);
+ assert.equal(cam.lastScan,recognized);
+ assert.notEqual(cam.reference,old);
+});
