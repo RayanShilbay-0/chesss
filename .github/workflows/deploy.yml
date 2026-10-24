@@ -30,6 +30,13 @@ jobs:
       - name: Validate JavaScript and camera inference tests
         working-directory: chess_cam_mvp
         run: npm run check
+      - name: Build site
+        working-directory: chess_cam_mvp
+        run: npm run build -- --base=/chesss/
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: chess_cam_mvp/dist
       - name: Install real browser integration test dependencies
         working-directory: chess_cam_mvp
         run: |
@@ -45,13 +52,6 @@ jobs:
           name: chesscam-browser-tests
           path: chess_cam_mvp/test-artifacts/
           if-no-files-found: ignore
-      - name: Build site
-        working-directory: chess_cam_mvp
-        run: npm run build -- --base=/chesss/
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: chess_cam_mvp/dist
   deploy:
     environment:
       name: github-pages
