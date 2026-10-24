@@ -17,6 +17,7 @@ export class CameraVision {
    this.stream=null;this.calibrating=false;this.corners=[];this.reference=null;
    this.side='w';this.latestFeatures=null;this.lastScan=null;
    this.arEnabled=true;this.arMove=null;this.frozenFrame=null;
+   this.occupancyModel=null;this.referenceSetAt=0;
  }
  async start(){
    if(!navigator.mediaDevices?.getUserMedia) throw new Error('كاميرا المتصفح تتطلب HTTPS أو localhost. افتح الموقع من رابط آمن.');
@@ -32,7 +33,7 @@ export class CameraVision {
  }
  stop(){
    this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;
-   this.video.srcObject=null;this.reference=null;this.latestFeatures=null;
+   this.video.srcObject=null;this.reference=null;this.latestFeatures=null;this.occupancyModel=null;this.referenceSetAt=0;
    this.calibrating=false;this.corners=[];this.arMove=null;this.lastScan=null;this.drawOverlay();
    this.stage.classList.remove('playing');
  }
@@ -44,7 +45,7 @@ export class CameraVision {
  }
  beginCalibration(){
    if(!this.stream)throw Error('شغّل الكاميرا أولًا.');
-   this.reference=null;this.lastScan=null;this.calibrating=true;this.corners=[];
+   this.reference=null;this.lastScan=null;this.occupancyModel=null;this.calibrating=true;this.corners=[];
    this.frozenFrame=this.frame();
    this.stage.classList.add('calibrating');
    this.message('اضغط على الزوايا بالترتيب: أعلى يسار ← أعلى يمين ← أسفل يمين ← أسفل يسار.');
@@ -162,6 +163,19 @@ export class CameraVision {
        }
        samples.push(rgb);
      }
+     // Background probes near the square edges remain mostly unoccluded by pieces.
+     // This also permits occupancy detection when a move changes only subtle pixels.
+     const edges=[[.09,.09],[.09,.91],[.91,.09],[.91,.91],[.09,.5],[.91,.5],[.5,.09],[.5,.91]];
+     for(const [u,v] of edges){
+       const pt=this.point((c+u)/8,(r+v)/8);
+       const x=Math.max(1,Math.min(W-2,Math.round(pt.x))),y=Math.max(1,Math.min(H-2,Math.round(pt.y)));
+       let rgb=[0,0,0];
+       for(let yy=-1;yy<=1;yy++)for(let xx=-1;xx<=1;xx++){
+         const off=((y+yy)*W+x+xx)*4;
+         for(let k=0;k<3;k++)rgb[k]+=p[off+k]/9;
+       }
+       samples.push(rgb);
+     }
      arr.push(samples);
    }
    return arr;
@@ -192,10 +206,48 @@ export class CameraVision {
    }
    return scores;
  }
- saveReference(){
+ occupancyScores(features){
+   return features.map(samples=>{
+     if(samples.length<57)return 0;
+     const corners=samples.slice(49,57);
+     const background=[0,1,2].map(k=>median(corners.map(pixel=>pixel[k])));
+     const values=samples.slice(0,49).map(pixel=>
+       (Math.abs(pixel[0]-background[0])+
+        Math.abs(pixel[1]-background[1])+
+        Math.abs(pixel[2]-background[2]))/3
+     );
+     return quantile(values,.72);
+   });
+ }
+ modelFor(features,game){
+   const s=this.occupancyScores(features);
+   const occupied=game.board().flat().map(Boolean);
+   const emptyStrength=s.filter((_,i)=>!occupied[i]);
+   const occupiedStrength=s.filter((_,i)=>occupied[i]);
+   const emptyHigh=quantile(emptyStrength,.9),occupiedLow=quantile(occupiedStrength,.2);
+   const separation=occupiedLow-emptyHigh;
+   const reliable=emptyStrength.length>=8&&occupiedStrength.length>=5&&separation>=5;
+   const threshold=(emptyHigh+occupiedLow)/2;
+   const guard=Math.max(1.5,Math.min(6,separation*.14));
+   const baselineMismatch=s.reduce((count,value,i)=>{
+     if(!reliable)return count;
+     if(occupied[i]&&value<threshold-guard)return count+1;
+     if(!occupied[i]&&value>threshold+guard)return count+1;
+     return count;
+   },0);
+   return {reliable,threshold,guard,separation,baselineMismatch,
+     occupiedStrength:occupiedLow,emptyStrength:emptyHigh};
+ }
+ saveReference(game){
    if(this.corners.length!==4)throw Error('حدد زوايا الرقعة أولًا.');
-   this.reference=this.features(this.frame());this.lastScan=null;this.latestFeatures=null;
-   this.message('تم حفظ الصورة المرجعية. بعد تحريك قطعة وإبعاد اليدين، اضغط «قراءة النقلة بالكاميرا».');
+   const features=this.features(this.frame());
+   const model=game?this.modelFor(features,game):null;
+   this.reference=features;this.occupancyModel=model;
+   this.lastScan=null;this.latestFeatures=null;this.referenceSetAt=Date.now();
+   if(model?.reliable&&model.baselineMismatch>=4)
+     this.message('تحذير: يبدو أن توزيع القطع في كاميرا الرقعة يختلف عن اللوحة الرقمية. لن تكون التحليلات موثوقة قبل تصحيح الوضعيتين.');
+   else this.message('تم حفظ الصورة المرجعية. المراقبة تقارن شكل القطع وتغيّر المربعات من هذه اللحظة.');
+   return model;
  }
  propose(game){
    if(!this.reference)throw Error('احفظ الوضع الحالي أولًا.');
@@ -204,6 +256,7 @@ export class CameraVision {
    const background=median(scores),p75=quantile(scores,.75);
    const threshold=Math.max(6,background*2.1,p75*1.45);
    const changed=scores.filter(s=>s>threshold).length;
+   const currentOccupancy=this.occupancyScores(current);
    const motion=this.lastScan?this.difference(this.lastScan,current):null;
    this.lastScan=current;
    if(changed>12||(motion&&changed>=5&&motion.filter(x=>x>Math.max(11,median(motion)*2.8)).length>12)){
@@ -212,23 +265,39 @@ export class CameraVision {
        message:'الكاميرا تحركت أو حدث تغيير كبير بالصورة. ثبّت الهاتف وأبعد اليد عن الرقعة. إذا تغيرت الزاوية، أعد تحديد الزوايا وحفظ المرجع.'};
    }
    this.latestFeatures=current;
-   const result=recognizeSequence(game,scores,threshold);
+   const result=recognizeSequence(game,scores,threshold,{
+     occupancy:this.occupancyModel?.reliable?{
+       reliable:true,
+       current:currentOccupancy,
+       threshold:this.occupancyModel.threshold,
+       guard:this.occupancyModel.guard
+     }:null
+   });
+   const totalChanged=result.observed?.length||changed;
    if(result.credible){
-     return {...result,changed,threshold,
+     return {...result,changed:totalChanged,threshold,
        message:result.top.sequence.length===2?
         'تم التعرف على نقلتين متتاليتين. راجع النقلتين قبل الاعتماد.':
         'تم التعرف على نقلة مرجحة. راجعها قبل الاعتماد.'};
    }
    if(result.reason==='no-change'){
-     return {...result,changed,threshold,
+     return {...result,changed:totalChanged,threshold,
        message:'لا يوجد تغيّر واضح منذ التقاط المرجع. إذا بدأت المباراة قبل حفظ المرجع، أعد ضبط الرقعتين والتقط المرجع قبل النقلة الأولى.'};
    }
-   return {...result,changed,threshold,
+   return {...result,changed:totalChanged,threshold,
      message:'الكاميرا رصدت تغيّرًا لكن لم تطابقه بثقة مع تسلسل النقلات القانونية. تأكد من مطابقة لوحة ChessCam للرقعة المصورة.'};
  }
 
- syncReference(){if(this.stream&&this.corners.length===4&&!this.calibrating){
-  this.reference=this.latestFeatures||this.features(this.frame());
-  this.latestFeatures=null;this.lastScan=null;
- }}
+ syncReference(game){
+   if(!this.stream||this.corners.length!==4||this.calibrating)return {ok:false,reason:'camera'};
+   // Never use the old last-scanned frame after the user confirms a move:
+   // by then the chess bot may have replied again.
+   const now=this.features(this.frame());
+   const model=game?this.modelFor(now,game):null;
+   this.reference=now;this.occupancyModel=model;this.latestFeatures=null;
+   this.lastScan=null;this.referenceSetAt=Date.now();
+   if(model?.reliable&&model.baselineMismatch>=4)
+     return {ok:false,reason:'mismatch',count:model.baselineMismatch};
+   return {ok:true,model};
+ }
 }
