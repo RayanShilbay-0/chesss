@@ -52,9 +52,23 @@ jobs:
           curl --fail --location --retry 3 --silent --show-error \
             https://raw.githubusercontent.com/scoriiu/fenshot/main/packages/fenshot/tests/fixtures/lichess-italian-black.png \
             -o public/test-fixtures/lichess-italian-black.png
+      - name: Download known Lichess cburnett piece assets for moving-board test
+        working-directory: chess_cam_mvp
+        run: |
+          mkdir -p public/test-fixtures/cburnett
+          for side in w b; do
+            for piece in P R N B Q K; do
+              curl --fail --location --retry 3 --silent --show-error \
+                "https://raw.githubusercontent.com/lichess-org/lila/master/public/piece/cburnett/${side}${piece}.svg" \
+                -o "public/test-fixtures/cburnett/${side}${piece}.svg"
+            done
+          done
       - name: Test real pretrained ONNX chess-piece recognition in Chromium
         working-directory: chess_cam_mvp
         run: npm run test:ai-e2e
+      - name: Test continuous white and black moves through trained CNN model
+        working-directory: chess_cam_mvp
+        run: npm run test:live-ai-e2e
       - name: Save browser failure screenshots
         uses: actions/upload-artifact@v4
         if: always()
