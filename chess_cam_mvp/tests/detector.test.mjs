@@ -135,3 +135,32 @@ test('recognized moves use last analyzed frame for reference, preserving later b
  assert.equal(cam.lastScan,recognized);
  assert.notEqual(cam.reference,old);
 });
+
+test('ignores stale opponent highlighting when detecting the next white knight move',()=>{
+ const g=new Chess();
+ g.move('e4');g.move('e6');
+ const following=new Chess(g.fen());following.move('Nf3');
+ // The previous e7/e6 highlighted squares also change their visual colors,
+ // but the pawns on those squares did not move again.
+ const scores=frame(['g1','f3']);
+ scores[idx('e7')]=17;scores[idx('e6')]=17;
+ const current=following.board().flat().map(x=>Boolean(x)?40:0);
+ const found=recognizeSequence(g,scores,7,{
+   occupancy:{reliable:true,current,threshold:20,guard:3}
+ });
+ assert(found.credible,JSON.stringify(found));
+ assert.deepEqual(found.top.sequence.map(m=>m.san),['Nf3']);
+});
+test('ignores old highlights while tracking a black knight after white moved',()=>{
+ const g=new Chess();
+ for(const san of ['e4','e6','Nf3'])g.move(san);
+ const following=new Chess(g.fen());following.move('Nf6');
+ const scores=frame(['g8','f6']);
+ for(const sq of ['g1','f3'])scores[idx(sq)]=16;
+ const current=following.board().flat().map(x=>Boolean(x)?40:0);
+ const found=recognizeSequence(g,scores,7,{
+   occupancy:{reliable:true,current,threshold:20,guard:3}
+ });
+ assert(found.credible,JSON.stringify(found));
+ assert.deepEqual(found.top.sequence.map(m=>m.san),['Nf6']);
+});
