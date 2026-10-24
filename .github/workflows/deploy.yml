@@ -30,6 +30,21 @@ jobs:
       - name: Validate JavaScript and camera inference tests
         working-directory: chess_cam_mvp
         run: npm run check
+      - name: Install real browser integration test dependencies
+        working-directory: chess_cam_mvp
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Test ChessCam with an actual headless browser and synthetic chess camera
+        working-directory: chess_cam_mvp
+        run: npm run test:e2e
+      - name: Save browser failure screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chesscam-browser-tests
+          path: chess_cam_mvp/test-artifacts/
+          if-no-files-found: ignore
       - name: Build site
         working-directory: chess_cam_mvp
         run: npm run build -- --base=/chesss/
