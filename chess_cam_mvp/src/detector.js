@@ -62,26 +62,44 @@ export function recognizeSequence(game,scores,threshold,opts={}){
       expected,hits:hit.length,miss,extra:extra.length,occErrors,occSupport,rating
     });
   }
-  for(const a of g.moves({verbose:true})){
+  const firstMoves=g.moves({verbose:true});
+  for(const a of firstMoves){
     g.move(a);
     consider([a]);
-    if(!g.isGameOver()){
-      for(const b of g.moves({verbose:true})){
-        g.move(b);
-        consider([a,b]);
-        g.undo();
-      }
-    }
     g.undo();
   }
-  candidates.sort((a,b)=>b.rating-a.rating||a.sequence.length-b.sequence.length);
-  const top=candidates[0],runner=candidates.find(c=>c.key!==top?.key);
-  const margin=top?(top.rating-(runner?.rating??-Infinity)):0;
-  const hasOccupancy=Boolean(occ?.reliable);
-  const credible=Boolean(top
-    && top.extra<=1 && top.occErrors<=(hasOccupancy?2:0)
-    && (top.miss===0 || (hasOccupancy&&top.miss===1&&top.occSupport>=1))
-    && top.hits>=1 && top.rating>20 && margin>=8);
+  // Scoring and searching EVERY two-ply line for every video frame causes
+  // stalls on phones, especially in open middlegames (>1,000 continuations).
+  // Try the cheap single-move solution first. Only look two moves ahead when
+  // the image contains >=3 changed squares AND no legal single move fits.
+  const rank=()=>candidates.sort((a,b)=>b.rating-a.rating||a.sequence.length-b.sequence.length);
+  const assess=()=>{
+    rank();
+    const best=candidates[0],second=candidates.find(c=>c.key!==best?.key);
+    const margin=best?(best.rating-(second?.rating??-Infinity)):0;
+    const hasOccupancy=Boolean(occ?.reliable);
+    const credible=Boolean(best
+      && best.extra<=1 && best.occErrors<=(hasOccupancy?2:0)
+      && (best.miss===0||(hasOccupancy&&best.miss===1&&best.occSupport>=1))
+      && best.hits>=1&&best.rating>20&&margin>=8);
+    return {best,margin,credible};
+  };
+  let result=assess();
+  if(!result.credible&&indices.length>=3){
+    for(const a of firstMoves){
+      g.move(a);
+      if(!g.isGameOver()){
+        for(const b of g.moves({verbose:true})){
+          g.move(b);
+          consider([a,b]);
+          g.undo();
+        }
+      }
+      g.undo();
+    }
+    result=assess();
+  }
+  const top=result.best,margin=result.margin,credible=result.credible;
   return {
     credible,reason:credible?'matched':'ambiguous',observed:indices,
     top:top||null,alternatives:candidates.slice(0,3),
