@@ -27,3 +27,21 @@ test('continues from an already-synchronized digital position',()=>{
  const r=recognizeSequence(g,frame(['e7','e6']),8);
  assert(r.credible,JSON.stringify(r));assert.equal(r.top.sequence[0].san,'e6');
 });
+
+import { CameraVision } from '../src/vision.js';
+const samples=(value=90)=>Array.from({length:64},()=>Array.from({length:49},()=>[value,value,value]));
+test('uniform board-highlight color changes are de-emphasized',()=>{
+ const a=samples(),b=samples();
+ for(const i of [12,36])for(const pixel of b[i])for(let k=0;k<3;k++)pixel[k]+=30;
+ const scores=CameraVision.prototype.difference.call({},a,b);
+ assert(scores[12]<8,'highlight 12 score '+scores[12]);
+ assert(scores[36]<8,'highlight 36 score '+scores[36]);
+});
+test('moving piece textures still produce a strong square signal',()=>{
+ const a=samples(),b=samples();
+ for(const i of [36,52])for(let j=10;j<39;j++)
+  if(j%7>=1 && j%7<=5)b[i][j]=[20,22,25];
+ const scores=CameraVision.prototype.difference.call({},a,b);
+ assert(scores[36]>8,'piece 36 score '+scores[36]);
+ assert(scores[52]>8,'piece 52 score '+scores[52]);
+});
