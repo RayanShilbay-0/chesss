@@ -35,3 +35,9 @@
 .recovery-panel label{display:block;margin:12px 0 7px;font-size:11px;line-height:1.9;color:#a9c1b5}
 .recovery-panel textarea{display:block;width:100%;resize:vertical;border:1px solid #496457;border-radius:8px;background:#0f2327;color:#e4f3e7;padding:9px;font:12px/1.6 monospace}
 .recovery-panel button{margin-top:9px;width:100%}
+
+#vision-mode{display:block;width:100%;max-width:none;margin:8px 0 12px;padding:11px 12px;font-size:12px;font-weight:700;white-space:normal}
+.camera-panel>label[for="vision-mode"]{display:block;margin-top:15px;font-size:12px;color:#ceefda;font-weight:700}
+#ml-turn{max-width:none;width:100%;margin:9px 0 6px}
+#ml-recover{width:100%;margin-top:5px}
+#ai-vision-state{overflow-wrap:anywhere;font-size:11px;line-height:1.7}
