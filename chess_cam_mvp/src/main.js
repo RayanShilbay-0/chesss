@@ -151,44 +151,56 @@ function setCameraButtons(){
   $('auto-accept').disabled=!on||!ref;
 }
 function hideSuggestion(){$('vision-suggestion').hidden=true;pendingMove=null;}
+function playCameraSequence(sequence){
+  if(!sequence?.length||game.isGameOver())return;
+  let applied=0;
+  try{
+    const names=[];
+    for(const m of sequence){
+      const move=game.move(m);
+      if(!move)throw Error('نقلة غير قانونية');
+      applied++;names.push(move.san);
+    }
+    selected=null;stableHits=0;stableKey='';lastScanStatus='';
+    hideSuggestion();vision.syncReference();beginAnalysis();setCameraButtons();
+    $('vision-message').textContent='تم تسجيل '+applied+' نقلة من الكاميرا: '+names.join('، ')+'.';
+  }catch(err){
+    while(applied-->0)game.undo();
+    vision.reference=null;autoScan=false;setCameraButtons();beginAnalysis();
+    $('vision-message').textContent='تعذر اعتماد القراءة: '+String(err.message);
+  }
+}
 function readCamera(silent=false){
   if(pendingMove||game.isGameOver()||vision.calibrating)return;
   try{
     const result=vision.propose(game);
     if(!result.credible){
       stableHits=0;stableKey='';
-      if(!silent||result.unstable){
-        $('vision-message').textContent=result.message;
-      } else if(lastScanStatus!=='watching'){
-        $('vision-message').textContent='المراقبة نشطة؛ حرّك قطعة على الرقعة المصوّرة، وأكمل الحركة قبل انتظار القراءة.';
-      }
-      lastScanStatus=result.unstable?'unstable':'watching';
+      if((result.changed||0)>=2)vision.setSuggestedMove(null);
+      if(!silent||result.unstable||lastScanStatus!==result.reason)
+        $('vision-message').textContent=result.message+(result.changed!==undefined?' | مربعات تغيّرت: '+result.changed:'');
+      lastScanStatus=result.reason||'unknown';
       return;
     }
-    const m=result.top;
-    const key=m.from+m.to+(m.promotion||'');
+    const seq=result.top.sequence.map(x=>({from:x.from,to:x.to,promotion:x.promotion||'q'}));
+    const key=seq.map(x=>x.from+x.to+x.promotion).join(' ');
     if(silent){
       stableHits=stableKey===key?stableHits+1:1;stableKey=key;
       if(stableHits<2){
-        if(lastScanStatus!==key){
-          $('vision-message').textContent=`تم رصد حركة محتملة ${m.san}. جارٍ التحقق من ثبات الصورة…`;
-          lastScanStatus=key;
-        }
+        $('vision-message').textContent='تم رصد '+seq.length+' نقلة محتملة. جارٍ التحقق من ثبات القراءة…';
         return;
       }
     }
     stableHits=0;stableKey='';lastScanStatus='';
-    const candidate={from:m.from,to:m.to,promotion:m.promotion||'q'};
     if(silent&&$('auto-accept').checked){
-      playMove(candidate,'camera');
-      return;
+      playCameraSequence(seq);return;
     }
-    pendingMove=candidate;
-    $('suggestion-title').textContent=`نقلة محتملة: ${m.san}`;
-    $('suggestion-desc').textContent=`من ${m.from} إلى ${m.to} · يجب تأكيدها لأن القراءة بالكاميرا تجريبية.`;
+    pendingMove=seq;
+    $('suggestion-title').textContent='النقلات المحتملة: '+result.top.sequence.map(x=>x.san).join('، ');
+    $('suggestion-desc').textContent=result.top.key+' · تأكد من صحة النقلات قبل اعتمادها.';
     $('vision-suggestion').hidden=false;
     $('vision-message').textContent=result.message;
-  }catch(err){if(!silent)$('vision-message').textContent=err.message;}
+  }catch(err){$('vision-message').textContent='خطأ قراءة الكاميرا: '+String(err.message);}
 }
 
 $('start-camera').addEventListener('click',async()=>{
@@ -214,7 +226,7 @@ $('baseline').addEventListener('click',()=>{
     stableHits=0;stableKey='';lastScanStatus='';
     autoScan=true;
     setCameraButtons();
-    $('vision-message').textContent='تم حفظ الصورة وبدأت المراقبة تلقائيًا. حرّك قطعة واحدة ثم اترك الشاشة ثابتة نحو ثانيتين. لتطبيق النقلة دون تأكيد، فعّل «اعتماد النقلات تلقائيًا».';
+    $('vision-message').textContent='تم التقاط المرجع وتفعيل المراقبة. تأكد أن لوحة ChessCam تطابق الرقعة المصورة الآن؛ يمكن اكتشاف نقلة أو نقلتين حدثتا بعد هذه اللحظة، وليس ما سبق المرجع.';
   }catch(e){$('vision-message').textContent=e.message;}
 });
 $('detect').addEventListener('click',()=>readCamera(false));
@@ -230,7 +242,7 @@ $('expand-video').addEventListener('click',()=>{
   $('expand-video').textContent=expanded?'تصغير الفيديو':'تكبير الفيديو';
   document.body.classList.toggle('camera-expanded',expanded);
 });
-$('accept-suggestion').addEventListener('click',()=>{if(pendingMove){const move=pendingMove;playMove(move,'camera');}});
+$('accept-suggestion').addEventListener('click',()=>{if(pendingMove)playCameraSequence(pendingMove);});
 $('reject-suggestion').addEventListener('click',()=>{hideSuggestion();$('vision-message').textContent='تم تجاهل الاقتراح. يمكنك إعادة قراءة النقلة أو تصحيحها من اللوحة.';});
 $('my-side').addEventListener('change',e=>{
   mySide=e.target.value;vision.side=mySide;

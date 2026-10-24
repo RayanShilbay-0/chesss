@@ -1,3 +1,4 @@
+import { recognizeSequence } from './detector.js';
 // Camera observation, NOT a trained piece recognizer. Detects changed squares between stable snapshots,
 // then proposes a legal move based on those changes. Requires a fixed overhead camera.
 const file='abcdefgh';
@@ -196,40 +197,27 @@ export class CameraVision {
    const changed=scores.filter(s=>s>threshold).length;
    const motion=this.lastScan?this.difference(this.lastScan,current):null;
    this.lastScan=current;
-   if(changed>11||(motion&&motion.filter(x=>x>Math.max(7,median(motion)*2.3)).length>=7)){
+   if(changed>12||(motion&&changed>=5&&motion.filter(x=>x>Math.max(11,median(motion)*2.8)).length>12)){
      this.latestFeatures=current;
-     return {credible:false,unstable:true,alternatives:[],background,threshold,
-       message:'الصورة غير مستقرة أو اليد تغطي الرقعة. ثبّت الهاتف وأبعد اليدين.'};
+     return {credible:false,unstable:true,reason:'many-changes',changed,threshold,
+       message:'الكاميرا تحركت أو حدث تغيير كبير بالصورة. ثبّت الهاتف وأبعد اليد عن الرقعة. إذا تغيرت الزاوية، أعد تحديد الزوايا وحفظ المرجع.'};
    }
    this.latestFeatures=current;
-   const moves=game.moves({verbose:true});
-   this.latestFeatures=current;
-   const expectedSquares=(m)=>{
-     const f=visualCell(m.from,this.side),t=visualCell(m.to,this.side);
-     const ss=[f.r*8+f.c,t.r*8+t.c];
-     if(m.flags.includes('e')){
-       const target=m.to[0]+m.from[1],p=visualCell(target,this.side);ss.push(p.r*8+p.c);
-     }
-     if(m.flags.includes('k')||m.flags.includes('q')){
-       const kingSide=m.flags.includes('k'),rank=m.from[1];
-       for(const square of [(kingSide?'h':'a')+rank,(kingSide?'f':'d')+rank]){const p=visualCell(square,this.side);ss.push(p.r*8+p.c);}
-     }
-     return ss;
-   };
-   const choices=moves.map(m=>{
-     const expected=expectedSquares(m),values=expected.map(i=>scores[i]);
-     const unexplained=scores.filter((s,i)=>!expected.includes(i));
-     const outsideStrong=unexplained.filter(s=>s>threshold).length;
-     const score=values.reduce((sum,n)=>sum+Math.min(n,85),0)/Math.sqrt(expected.length)
-        -outsideStrong*10-quantile(unexplained,.9)*.3;
-     return {...m,score,min:Math.min(...values),outsideStrong};
-   }).sort((a,b)=>b.score-a.score);
-   const top=choices[0],second=choices.find(x=>x.from!==top?.from||x.to!==top?.to);
-   const credible=!!top && top.min>threshold && top.outsideStrong<=2 &&
-     top.score>Math.max(0,second?.score||0)*1.10 && top.score>12;
-   return {credible,top,alternatives:choices.slice(0,3),background,threshold,
-     message:credible?'تم التعرف على نقلة مرجّحة. راجعها واعتمدها.': 'التغير غير واضح أو توجد أكثر من نقلة محتملة. ثبّت الكاميرا، أبعد اليدين، أو سجّل النقلة من اللوحة.'};
+   const result=recognizeSequence(game,scores,threshold);
+   if(result.credible){
+     return {...result,changed,threshold,
+       message:result.top.sequence.length===2?
+        'تم التعرف على نقلتين متتاليتين. راجع النقلتين قبل الاعتماد.':
+        'تم التعرف على نقلة مرجحة. راجعها قبل الاعتماد.'};
+   }
+   if(result.reason==='no-change'){
+     return {...result,changed,threshold,
+       message:'لا يوجد تغيّر واضح منذ التقاط المرجع. إذا بدأت المباراة قبل حفظ المرجع، أعد ضبط الرقعتين والتقط المرجع قبل النقلة الأولى.'};
+   }
+   return {...result,changed,threshold,
+     message:'الكاميرا رصدت تغيّرًا لكن لم تطابقه بثقة مع تسلسل النقلات القانونية. تأكد من مطابقة لوحة ChessCam للرقعة المصورة.'};
  }
+
  syncReference(){if(this.stream&&this.corners.length===4&&!this.calibrating){
   this.reference=this.latestFeatures||this.features(this.frame());
   this.latestFeatures=null;this.lastScan=null;

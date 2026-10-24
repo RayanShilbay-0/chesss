@@ -15,9 +15,9 @@
  </header>
  <main class="shell">
   <section class="intro">
-   <span class="eyebrow">نسخة 0.3 · مراقبة تلقائية للرقعة</span>
+   <span class="eyebrow">نسخة 0.4 · تتبع نقلتين متتاليتين</span>
    <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
-   <p>ثبّت الكاميرا أمام رقعة حقيقية، وحدّد زواياها، وشاهد سهم أفضل نقلة مباشرة فوق الفيديو. قراءة النقلات تعتمد على تتبّع التغيّر ولم تصل بعد لدقة نموذج تعرّف مدرّب على القطع.</p>
+   <p>ثبّت الكاميرا أمام رقعة حقيقية، وحدّد زواياها، وشاهد سهم أفضل نقلة مباشرة فوق الفيديو. قراءة النقلات تعتمد على مقارنة الصور، ويمكنها محاولة استنتاج نقلة أو نقلتين متتاليتين بعد حفظ المرجع؛ لا تتعرف على وضعية بدأت قبل ذلك.</p>
   </section>
   <section class="workspace">
    <div class="panel camera-panel">
@@ -41,7 +41,7 @@
      <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
      <div class="toggle-line"><label for="auto-accept">اعتماد النقلات المؤكدة تلقائيًا (تجريبي)</label><input type="checkbox" id="auto-accept" disabled /></div>
      <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
-     <p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
+     <p class="helper">تنبيه: السهم الأخضر هو اقتراح المحرك، وليس دليلًا أن الكاميرا قرأت حركة. يجب بدء الرقعتين من نفس الوضعية، وحفظ المرجع قبل النقلة التالية.</p><p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
      <div id="vision-suggestion" class="suggestion" hidden>
        <div><strong id="suggestion-title">نقلة محتملة</strong><small id="suggestion-desc"></small></div>
        <div class="suggestion-actions"><button class="primary" id="accept-suggestion">اعتماد النقلة</button><button class="ghost" id="reject-suggestion">إلغاء</button></div>

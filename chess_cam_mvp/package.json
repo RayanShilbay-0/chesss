@@ -9,7 +9,7 @@
     "prebuild": "node scripts/copy-engine.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "check": "node --check src/main.js && node --check src/vision.js && node --check src/engine.js"
+    "check": "node --check src/main.js && node --check src/vision.js && node --check src/detector.js && node --check src/engine.js && node --test tests/detector.test.mjs"
   },
   "dependencies": {
     "chess.js": "1.4.0",
