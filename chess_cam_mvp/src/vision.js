@@ -17,24 +17,60 @@ export class CameraVision {
    this.stream=null;this.calibrating=false;this.corners=[];this.reference=null;
    this.side='w';this.latestFeatures=null;this.lastScan=null;
    this.arEnabled=true;this.arMove=null;this.frozenFrame=null;
-   this.occupancyModel=null;this.referenceSetAt=0;
+   this.occupancyModel=null;this.referenceSetAt=0;this.sourceKind='camera';
  }
  async start(){
-   if(!navigator.mediaDevices?.getUserMedia) throw new Error('كاميرا المتصفح تتطلب HTTPS أو localhost. افتح الموقع من رابط آمن.');
-   if(this.stream) return;
-   this.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-   this.video.srcObject=this.stream;
-   await this.video.play();
-   const w=Math.min(960,this.video.videoWidth),h=Math.round(w*this.video.videoHeight/this.video.videoWidth);
-   this.canvas.width=w;this.canvas.height=h;
-   this.stage.style.aspectRatio=`${w} / ${h}`;
-   this.stage.classList.add('playing');
-   this.message('الكاميرا جاهزة. الآن اضغط «تحديد زوايا الرقعة».');
+   if(!navigator.mediaDevices?.getUserMedia)
+     throw new Error('فتح كاميرا المتصفح يتطلب HTTPS أو localhost.');
+   const stream=await navigator.mediaDevices.getUserMedia({
+     video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
+     audio:false
+   });
+   return this.connect(stream,'camera');
  }
+ async startScreen(){
+   if(!navigator.mediaDevices?.getDisplayMedia)
+     throw new Error('قراءة نافذة الكمبيوتر غير مدعومة على هذا المتصفح. افتح ChessCam على Chrome أو Edge بكمبيوتر، أو استخدم كاميرا الهاتف.');
+   // Browser requires an explicit user gesture and always shows the window picker.
+   const stream=await navigator.mediaDevices.getDisplayMedia({
+     video:{frameRate:{ideal:10}},audio:false
+   });
+   return this.connect(stream,'screen');
+ }
+ async connect(stream,kind){
+   if(this.stream)this.stop();
+   this.stream=stream;this.sourceKind=kind;
+   this.video.srcObject=stream;
+   try{
+     await this.video.play();
+     const sourceWidth=this.video.videoWidth||960,sourceHeight=this.video.videoHeight||720;
+     const w=Math.min(kind==='screen'?1280:960,sourceWidth);
+     const h=Math.round(w*sourceHeight/sourceWidth);
+     this.canvas.width=w;this.canvas.height=h;
+     this.stage.style.aspectRatio=`${w} / ${h}`;
+     this.stage.classList.add('playing');
+     this.calibrating=false;this.corners=[];this.reference=null;
+     this.lastScan=null;this.latestFeatures=null;this.occupancyModel=null;
+     stream.getVideoTracks()[0]?.addEventListener('ended',()=>{
+       if(this.stream===stream){
+         this.stop();
+         this.message('توقف بث نافذة الشطرنج. يمكنك مشاركة النافذة مرة أخرى.');
+       }
+     },{once:true});
+     this.message(kind==='screen'?
+       'تمت مشاركة النافذة. حدد زوايا الرقعة التي تظهر داخل الفيديو، ثم احفظ الوضع قبل أول نقلة.':
+       'الكاميرا جاهزة. الآن اضغط تحديد زوايا الرقعة.');
+   }catch(err){
+     stream.getTracks().forEach(track=>track.stop());
+     this.stop();throw err;
+   }
+ }
+
  stop(){
    this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;
    this.video.srcObject=null;this.reference=null;this.latestFeatures=null;this.occupancyModel=null;this.referenceSetAt=0;
    this.calibrating=false;this.corners=[];this.arMove=null;this.lastScan=null;this.drawOverlay();
+   this.sourceKind='camera';
    this.stage.classList.remove('playing');
  }
  frame(){
