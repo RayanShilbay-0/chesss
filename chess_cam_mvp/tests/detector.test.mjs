@@ -164,3 +164,17 @@ test('ignores old highlights while tracking a black knight after white moved',()
  assert(found.credible,JSON.stringify(found));
  assert.deepEqual(found.top.sequence.map(m=>m.san),['Nf6']);
 });
+
+test('single-ply camera tracking remains fast over repeated middle-game scans',()=>{
+ const game=new Chess();
+ for(const san of ['e4','e5','Nf3','Nc6','Bc4','Bc5','d3','Nf6','Nc3','d6'])game.move(san);
+ const next=game.moves({verbose:true})[0];
+ const s=frame([next.from,next.to]);
+ const start=performance.now();
+ for(let i=0;i<20;i++){
+   const found=recognizeSequence(game,s,9);
+   assert(found.credible,JSON.stringify(found));
+ }
+ const elapsed=performance.now()-start;
+ assert(elapsed<3000,'20 single-move scans took '+elapsed.toFixed(0)+'ms');
+});
