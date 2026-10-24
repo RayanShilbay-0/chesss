@@ -4,7 +4,7 @@ import {mkdirSync} from 'node:fs';
 import assert from 'node:assert/strict';
 
 const port=4177,base='http://127.0.0.1:'+port;
-const child=spawn('npx',['vite','--host','127.0.0.1','--port',String(port)],{
+const child=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port)],{
  cwd:process.cwd(),stdio:['ignore','pipe','pipe']
 });
 let serverLog='';
