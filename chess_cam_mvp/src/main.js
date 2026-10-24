@@ -94,6 +94,8 @@ function playMove(move,source){
     }else if(vision.reference){
       $('vision-message').textContent='سُجّلت نقلة على اللوحة الرقمية. إذا تغيّرت الرقعة الحقيقية أيضًا، أعد حفظ الوضع الحالي قبل قراءة النقلة التالية.';
       autoScan=false;$('auto-scan').checked=false;
+      warningNoSync=true;
+      setCameraButtons();
     }
   }catch(e){$('vision-message').textContent='نقلة غير قانونية: '+String(e.message);}
 }
@@ -234,7 +236,7 @@ function readCamera(silent=false){
 $('start-camera').addEventListener('click',async()=>{
   const btn=$('start-camera');btn.disabled=true;
   try{
-    if(vision.stream){$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
+    if(vision.stream){$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;warningNoSync=false;lastReadAt=0;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
     else await vision.start();
   }catch(err){$('vision-message').textContent='تعذر تشغيل الكاميرا: '+String(err.message);}
   finally{btn.disabled=false;setCameraButtons();}
@@ -298,8 +300,40 @@ $('copy-pgn').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText(notation);$('vision-message').textContent='تم نسخ سجل المباراة (PGN).';}
   catch{window.prompt('انسخ النقلات:',notation);}
 });
+$('resync').addEventListener('click',()=>{
+  try{
+    if(!vision.stream||vision.corners.length!==4)throw Error('شغّل الكاميرا وحدد الزوايا أولًا.');
+    if(!window.confirm('هل لوحة ChessCam الرقمية مطابقة تمامًا للرقعة الظاهرة الآن بالكاميرا؟ إذا كانت مختلفة، صحّح النقلات أولًا أو استورد FEN.'))return;
+    hideSuggestion();
+    vision.saveReference();
+    autoScan=true;warningNoSync=false;unmatchedSince=0;
+    lastReadAt=0;lastScanStatus='';stableHits=0;stableKey='';
+    lastRecognizedAt=Date.now();
+    setCameraButtons();beginAnalysis();
+    $('vision-message').textContent='تمت إعادة المزامنة من الوضع الحالي. سيُفحص الفيديو تلقائيًا بعد النقلة التالية.';
+  }catch(err){$('vision-message').textContent='لم تنجح استعادة المزامنة: '+String(err.message);}
+});
+$('import-fen').addEventListener('click',()=>{
+  try{
+    const fen=$('fen-input').value.trim();
+    if(!fen)throw Error('ألصق نص FEN أولًا.');
+    const candidate=new Chess(fen);
+    if(!window.confirm('سيتم استبدال وضعية ChessCam الحالية ومسح سجل النقلات. متابعة؟'))return;
+    game.load(candidate.fen());
+    selected=null;hideSuggestion();
+    vision.reference=null;autoScan=false;
+    warningNoSync=false;unmatchedSince=0;lastReadAt=0;
+    beginAnalysis();setCameraButtons();
+    $('vision-message').textContent='تم استيراد FEN. تأكد أن قطع الرقعة الرقمية تطابق الكاميرا، ثم اضغط استعادة المزامنة.';
+  }catch(err){$('vision-message').textContent='وضعية FEN غير صالحة: '+String(err.message);}
+});
+document.addEventListener('visibilitychange',()=>{
+  setCameraButtons();
+  if(!document.hidden&&vision.stream&&autoScan) $('vision-message').textContent='عادت الكاميرا إلى الواجهة؛ المراقبة تتحقق من الوضعية الآن.';
+});
 autoInterval=setInterval(()=>{
   if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&!document.hidden)readCamera(true);
-},850);
+  setCameraButtons();
+},1100);
 window.addEventListener('pagehide',()=>{vision.stop();engine.close();if(autoInterval)clearInterval(autoInterval);});
 renderBoard();setCameraButtons();resetAnalysis();engine.init();engine.analyze(game.fen());
