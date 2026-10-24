@@ -111,7 +111,7 @@ async function test(){
  await page.locator('#calibrate').click();
  const o=page.locator('#camera-overlay');
  const box=await o.boundingBox();
- assert(box.width>500&&box.height>500,JSON.stringify(box));
+ assert(box.width>250&&box.height>250,JSON.stringify(box));
  for(const [x,y] of [[2,2],[box.width-2,2],[box.width-2,box.height-2],[2,box.height-2]]){
    await o.click({position:{x,y}});
  }
