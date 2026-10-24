@@ -156,7 +156,9 @@ function setCameraButtons(){
   state.classList.toggle('attention',!!(pending||warningNoSync||stale));
   $('auto-scan').checked=monitoring;
   $('start-camera').textContent=on?'إيقاف الكاميرا':'تشغيل الكاميرا';
-  $('camera-state').textContent=on?'بث مباشر':'الكاميرا متوقفة';
+  $('camera-state').textContent=on?(vision.sourceKind==='screen'?'نافذة الكمبيوتر مباشرة':'الكاميرا مباشرة'):'الكاميرا متوقفة';
+  $('start-screen').textContent=on&&vision.sourceKind==='screen'?'إيقاف مشاركة النافذة':'مشاركة نافذة الشطرنج';
+  $('start-screen').hidden=!navigator.mediaDevices?.getDisplayMedia;
   $('calibrate').disabled=!on;$('baseline').disabled=!on||!ready;
   $('detect').disabled=!on||!ref;$('auto-scan').disabled=!on||!ref;
   $('expand-video').disabled=!on;
@@ -245,6 +247,25 @@ $('start-camera').addEventListener('click',async()=>{
     else await vision.start();
   }catch(err){$('vision-message').textContent='تعذر تشغيل الكاميرا: '+String(err.message);}
   finally{btn.disabled=false;setCameraButtons();}
+});
+$('start-screen').addEventListener('click',async()=>{
+  const btn=$('start-screen');
+  btn.disabled=true;
+  try{
+    if(vision.stream&&vision.sourceKind==='screen'){
+      vision.stop();
+      autoScan=false;warningNoSync=false;lastReadAt=0;
+      hideSuggestion();
+      $('vision-message').textContent='تم إيقاف مشاركة نافذة الشطرنج.';
+    }else{
+      await vision.startScreen();
+      autoScan=false;warningNoSync=false;lastReadAt=0;
+      hideSuggestion();
+      $('vision-message').textContent='تم التقاط نافذة الكمبيوتر. حدّد زوايا الرقعة الظاهرة في الفيديو واحفظ الوضع قبل النقلات.';
+    }
+  }catch(err){
+    $('vision-message').textContent='تعذّرت مشاركة النافذة: '+String(err.message);
+  }finally{btn.disabled=false;setCameraButtons();}
 });
 $('calibrate').addEventListener('click',()=>{
   try{vision.beginCalibration();autoScan=false;$('auto-scan').checked=false;hideSuggestion();setCameraButtons();}catch(e){$('vision-message').textContent=e.message;}
