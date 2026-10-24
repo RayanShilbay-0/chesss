@@ -1,7 +1,7 @@
 import { boardToTiles } from '@scoriiu/fenshot';
 import { inferMovesFromModel, decodedPosition } from './model-moves.js';
-import ortJsUrl from 'onnxruntime-web/dist/ort-wasm-simd-threaded.mjs?url';
-import ortWasmUrl from 'onnxruntime-web/dist/ort-wasm-simd-threaded.wasm?url';
+import ortJsUrl from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs?url';
+import ortWasmUrl from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm?url';
 export function wasmAssetUrls(){return {mjs:new URL(ortJsUrl,location.href).href,wasm:new URL(ortWasmUrl,location.href).href};}
 
 const OUT_SIZE=256;
