@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         working-directory: chess_cam_mvp
         run: npm install
+      - name: Validate JavaScript and camera inference tests
+        working-directory: chess_cam_mvp
+        run: npm run check
       - name: Build site
         working-directory: chess_cam_mvp
         run: npm run build -- --base=/chesss/
