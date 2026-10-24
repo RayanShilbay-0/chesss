@@ -178,10 +178,15 @@ function playCameraSequence(sequence){
       applied++;names.push(move.san);
     }
     selected=null;stableHits=0;stableKey='';lastScanStatus='';
-    hideSuggestion();vision.syncReference();
-    warningNoSync=false;unmatchedSince=0;lastRecognizedAt=Date.now();
+    hideSuggestion();
+    const sync=vision.syncReference(game);
+    warningNoSync=Boolean(sync?.model?.reliable&&sync.model.baselineMismatch>=5);
+    if(warningNoSync)autoScan=false;
+    unmatchedSince=0;lastRecognizedAt=Date.now();
     beginAnalysis();setCameraButtons();
-    $('vision-message').textContent='تم تسجيل '+applied+' نقلة من الكاميرا: '+names.join('، ')+'.';
+    $('vision-message').textContent=warningNoSync?
+      'سجّلت '+applied+' نقلة، لكن قطع الصورة لا تطابق الرقعة الرقمية حاليًا. أوقفت المراقبة مؤقتًا لتصحيح الوضعية.':
+      'تم تسجيل '+applied+' نقلة من الكاميرا: '+names.join('، ')+'.';
   }catch(err){
     while(applied-->0)game.undo();
     vision.reference=null;autoScan=false;warningNoSync=true;setCameraButtons();beginAnalysis();
@@ -252,11 +257,13 @@ $('camera-overlay').addEventListener('click',e=>{
 });
 $('baseline').addEventListener('click',()=>{
   try{
-    vision.saveReference(game);hideSuggestion();
+    const model=vision.saveReference(game);hideSuggestion();
     stableHits=0;stableKey='';lastScanStatus='';
-    autoScan=true;warningNoSync=false;unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
+    autoScan=true;warningNoSync=Boolean(model?.reliable&&model.baselineMismatch>=5);unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
     setCameraButtons();
-    $('vision-message').textContent='تم التقاط المرجع وتفعيل المراقبة. تأكد أن لوحة ChessCam تطابق الرقعة المصورة الآن؛ يمكن اكتشاف نقلة أو نقلتين حدثتا بعد هذه اللحظة، وليس ما سبق المرجع.';
+    $('vision-message').textContent=warningNoSync?
+      'تحذير: توزيع القطع داخل الكاميرا لا يطابق اللوحة الرقمية. صحّحها أو استورد FEN، ثم أعد حفظ الوضع.':
+      'تم حفظ المرجع وتشغيل قراءة القطع ونقلات الأبيض والأسود. ابدأ التجربة من الوضعية المتطابقة.';
   }catch(e){$('vision-message').textContent=e.message;}
 });
 $('detect').addEventListener('click',()=>readCamera(false));
@@ -305,12 +312,14 @@ $('resync').addEventListener('click',()=>{
     if(!vision.stream||vision.corners.length!==4)throw Error('شغّل الكاميرا وحدد الزوايا أولًا.');
     if(!window.confirm('هل لوحة ChessCam الرقمية مطابقة تمامًا للرقعة الظاهرة الآن بالكاميرا؟ إذا كانت مختلفة، صحّح النقلات أولًا أو استورد FEN.'))return;
     hideSuggestion();
-    vision.saveReference(game);
-    autoScan=true;warningNoSync=false;unmatchedSince=0;
+    const model=vision.saveReference(game);
+    autoScan=true;warningNoSync=Boolean(model?.reliable&&model.baselineMismatch>=5);unmatchedSince=0;
     lastReadAt=0;lastScanStatus='';stableHits=0;stableKey='';
     lastRecognizedAt=Date.now();
     setCameraButtons();beginAnalysis();
-    $('vision-message').textContent='تمت إعادة المزامنة من الوضع الحالي. سيُفحص الفيديو تلقائيًا بعد النقلة التالية.';
+    $('vision-message').textContent=warningNoSync?
+      'لا تزال صورة القطع تبدو مختلفة عن الرقعة الرقمية. صحح الوضعية قبل الاعتماد على قراءة جديدة.':
+      'تم حفظ مرجع جديد وإعادة تشغيل قراءة نقلات الأبيض والأسود.';
   }catch(err){$('vision-message').textContent='لم تنجح استعادة المزامنة: '+String(err.message);}
 });
 $('import-fen').addEventListener('click',()=>{
