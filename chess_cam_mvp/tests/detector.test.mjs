@@ -45,3 +45,55 @@ test('moving piece textures still produce a strong square signal',()=>{
  assert(scores[36]>8,'piece 36 score '+scores[36]);
  assert(scores[52]>8,'piece 52 score '+scores[52]);
 });
+
+test('recognizes a black bot move despite weak raw pixel differences using piece occupancy',()=>{
+ const g=new Chess();g.move('e4');
+ const start=g.board().flat().map(Boolean);
+ const after=new Chess(g.fen());after.move('e6');
+ const newOcc=after.board().flat().map(Boolean);
+ const values=newOcc.map(on=>on?40:0);
+ const scores=Array(64).fill(2);
+ const r=recognizeSequence(g,scores,9,{
+   occupancy:{reliable:true,current:values,threshold:20,guard:3}
+ });
+ assert(r.credible,JSON.stringify(r));
+ assert.equal(r.top.sequence[0].san,'e6');
+});
+test('recognizes two moves with faint visual differences, for both white and black',()=>{
+ const g=new Chess(),after=new Chess();
+ after.move('e4');after.move('e6');
+ const current=after.board().flat().map(on=>Boolean(on)?40:0);
+ const r=recognizeSequence(g,Array(64).fill(2),9,{
+   occupancy:{reliable:true,current,threshold:20,guard:3}
+ });
+ assert(r.credible,JSON.stringify(r));
+ assert.deepEqual(r.top.sequence.map(m=>m.san),['e4','e6']);
+});
+test('no movement is not misclassified as a valid move',()=>{
+ const g=new Chess();
+ const current=g.board().flat().map(on=>Boolean(on)?40:0);
+ const r=recognizeSequence(g,Array(64).fill(2),9,{
+   occupancy:{reliable:true,current,threshold:20,guard:3}
+ });
+ assert.equal(r.credible,false);
+});
+test('visual classifier separates occupied and empty squares on digital chessboard samples',()=>{
+ const g=new Chess();
+ const texture=g.board().flat().map((piece,i)=>{
+   const light=((Math.floor(i/8)+i%8)%2)===0;
+   const bg=light?[236,236,207]:[118,148,87];
+   const result=[];
+   for(let j=0;j<49;j++){
+     const row=Math.floor(j/7),col=j%7;
+     const body=piece&&row>=1&&row<=5&&col>=2&&col<=4;
+     const edge=body&&(col===2||col===4||row===1);
+     result.push(body?(piece.color==='b'?[36,37,37]:(edge?[42,46,45]:[250,250,248])):[...bg]);
+   }
+   for(let k=0;k<8;k++)result.push([...bg]);
+   return result;
+ });
+ const scan={occupancyScores:CameraVision.prototype.occupancyScores};
+ const model=CameraVision.prototype.modelFor.call(scan,texture,g);
+ assert(model.reliable,JSON.stringify(model));
+ assert(model.baselineMismatch<=2,JSON.stringify(model));
+});
