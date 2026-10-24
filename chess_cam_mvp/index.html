@@ -15,7 +15,7 @@
  </header>
  <main class="shell">
   <section class="intro">
-   <span class="eyebrow">نسخة 0.4 · تتبع نقلتين متتاليتين</span>
+   <span class="eyebrow">نسخة 0.5 · مراقبة مع استعادة المزامنة</span>
    <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
    <p>ثبّت الكاميرا أمام رقعة حقيقية، وحدّد زواياها، وشاهد سهم أفضل نقلة مباشرة فوق الفيديو. قراءة النقلات تعتمد على مقارنة الصور، ويمكنها محاولة استنتاج نقلة أو نقلتين متتاليتين بعد حفظ المرجع؛ لا تتعرف على وضعية بدأت قبل ذلك.</p>
   </section>
@@ -37,10 +37,19 @@
       <button class="secondary" id="detect" disabled>قراءة النقلة بالكاميرا</button>
      </div>
      <div class="scan-indicator" id="scan-indicator" role="status" aria-live="polite">الكاميرا متوقفة</div>
+     <p class="scan-timestamp" id="capture-status">الكاميرا غير متصلة</p>
+     <div class="camera-actions"><button class="secondary" id="resync" disabled>استعادة المزامنة من الوضع الحالي</button></div>
+     <details class="recovery-panel">
+       <summary>فقدت النقلات؟ استعادة الوضعية باستخدام FEN</summary>
+       <label for="fen-input">إذا لم تتطابق الرقعة مع ChessCam، صححها بتحريك القطع على اللوحة الرقمية أو ألصق FEN من موقع الشطرنج، ثم اضغط استعادة المزامنة.</label>
+       <textarea id="fen-input" rows="3" dir="ltr" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"></textarea>
+       <button class="secondary" id="import-fen">استيراد FEN</button>
+     </details>
      <div class="toggle-line"><label for="auto-scan">مراقبة النقلات تلقائيًا</label><input type="checkbox" id="auto-scan" disabled /></div>
      <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
      <div class="toggle-line"><label for="auto-accept">اعتماد النقلات المؤكدة تلقائيًا (تجريبي)</label><input type="checkbox" id="auto-accept" disabled /></div>
      <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
+     <p class="helper">إذا ظهر «بانتظار الاعتماد»، لن يقرأ البرنامج نقلة أخرى حتى تقبل أو ترفض الاقتراح. وإذا اختلفت الرقعتان، صحح الوضعية ثم استخدم «استعادة المزامنة»؛ لا تُعِد حفظ المرجع مع رقعتين مختلفتين.</p>
      <p class="helper">تنبيه: السهم الأخضر هو اقتراح المحرك، وليس دليلًا أن الكاميرا قرأت حركة. يجب بدء الرقعتين من نفس الوضعية، وحفظ المرجع قبل النقلة التالية.</p><p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
      <div id="vision-suggestion" class="suggestion" hidden>
        <div><strong id="suggestion-title">نقلة محتملة</strong><small id="suggestion-desc"></small></div>
