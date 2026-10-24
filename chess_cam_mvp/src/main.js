@@ -89,7 +89,7 @@ function playMove(move,source){
     selected=null;pendingMove=null;hideSuggestion();stableHits=0;stableKey='';lastScanStatus='';
     beginAnalysis();
     if(source==='camera'){
-      try{vision.syncReference();}catch{};
+      try{vision.syncReference(game);}catch{};
       $('vision-message').textContent=`تم اعتماد ${played.san} من الكاميرا وتحديث صورة الرقعة.`;
     }else if(vision.reference){
       $('vision-message').textContent='سُجّلت نقلة على اللوحة الرقمية. إذا تغيّرت الرقعة الحقيقية أيضًا، أعد حفظ الوضع الحالي قبل قراءة النقلة التالية.';
@@ -252,7 +252,7 @@ $('camera-overlay').addEventListener('click',e=>{
 });
 $('baseline').addEventListener('click',()=>{
   try{
-    vision.saveReference();hideSuggestion();
+    vision.saveReference(game);hideSuggestion();
     stableHits=0;stableKey='';lastScanStatus='';
     autoScan=true;warningNoSync=false;unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
     setCameraButtons();
@@ -305,7 +305,7 @@ $('resync').addEventListener('click',()=>{
     if(!vision.stream||vision.corners.length!==4)throw Error('شغّل الكاميرا وحدد الزوايا أولًا.');
     if(!window.confirm('هل لوحة ChessCam الرقمية مطابقة تمامًا للرقعة الظاهرة الآن بالكاميرا؟ إذا كانت مختلفة، صحّح النقلات أولًا أو استورد FEN.'))return;
     hideSuggestion();
-    vision.saveReference();
+    vision.saveReference(game);
     autoScan=true;warningNoSync=false;unmatchedSince=0;
     lastReadAt=0;lastScanStatus='';stableHits=0;stableKey='';
     lastRecognizedAt=Date.now();
