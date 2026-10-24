@@ -42,9 +42,19 @@ jobs:
         run: |
           npm install --no-save playwright@1.56.1
           npx playwright install --with-deps chromium
-      - name: Test ChessCam with an actual headless browser and synthetic chess camera
+      - name: Download known-chess-position screenshot fixtures for pretrained model
         working-directory: chess_cam_mvp
-        run: npm run test:e2e
+        run: |
+          mkdir -p public/test-fixtures
+          curl --fail --location --retry 3 --silent --show-error \
+            https://raw.githubusercontent.com/scoriiu/fenshot/main/packages/fenshot/tests/fixtures/chesscom-italian-white.png \
+            -o public/test-fixtures/chesscom-italian-white.png
+          curl --fail --location --retry 3 --silent --show-error \
+            https://raw.githubusercontent.com/scoriiu/fenshot/main/packages/fenshot/tests/fixtures/lichess-italian-black.png \
+            -o public/test-fixtures/lichess-italian-black.png
+      - name: Test real pretrained ONNX chess-piece recognition in Chromium
+        working-directory: chess_cam_mvp
+        run: npm run test:ai-e2e
       - name: Save browser failure screenshots
         uses: actions/upload-artifact@v4
         if: always()

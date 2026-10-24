@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "node --check src/main.js && node --check src/vision.js && node --check src/detector.js && node --check src/engine.js && node --test tests/detector.test.mjs && node --test tests/model-moves.test.mjs",
-    "test:e2e": "node tests/browser.e2e.mjs"
+    "test:e2e": "node tests/browser.e2e.mjs",
+    "test:ai-e2e": "node tests/model-browser.e2e.mjs"
   },
   "dependencies": {
     "chess.js": "1.4.0",
