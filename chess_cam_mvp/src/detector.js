@@ -12,14 +12,25 @@ export function recognizeSequence(game,scores,threshold,opts={}){
   const observed=new Set();
   const predictedOccupancy=Array(64).fill(null);
   for(let i=0;i<64;i++){
-    if(scores[i]>threshold)observed.add(i);
+    const pixelChanged=scores[i]>threshold;
     if(occ?.reliable && Number.isFinite(occ?.current?.[i])){
       const value=occ.current[i],cut=occ.threshold,guard=occ.guard||2.5;
       if(value<cut-guard)predictedOccupancy[i]=false;
       else if(value>cut+guard)predictedOccupancy[i]=true;
-      if(predictedOccupancy[i]!==null && predictedOccupancy[i]!==Boolean(baseline[i])){
+    }
+    const seenPiece=predictedOccupancy[i],oldPiece=Boolean(baseline[i]);
+    if(seenPiece!==null){
+      if(seenPiece!==oldPiece){
+        // Strongest possible evidence: the piece appeared or disappeared.
+        observed.add(i);
+      }else if(pixelChanged&&oldPiece&&scores[i]>Math.max(24,threshold*3)){
+        // Occupied-to-occupied captures can change piece identity without
+        // changing square occupancy. Keep only unmistakably large visual changes.
         observed.add(i);
       }
+      // Otherwise discard background/last-move square highlighting noise.
+    }else if(pixelChanged){
+      observed.add(i);
     }
   }
   const indices=[...observed];
