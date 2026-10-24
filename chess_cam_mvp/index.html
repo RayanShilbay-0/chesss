@@ -15,7 +15,7 @@
  </header>
  <main class="shell">
   <section class="intro">
-   <span class="eyebrow">نسخة 0.7 · تجديد آمن للمرجع تلقائيًا</span>
+   <span class="eyebrow">نسخة 0.8 · نموذج CNN مدرب للتعرّف على القطع</span>
    <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
    <p>للتجربة ضد بوت على الكمبيوتر: شارك نافذة الشطرنج مباشرة لتقليل أخطاء تصوير الشاشة. وللرقعة الحقيقية استخدم كاميرا الهاتف. يجمع التتبع بين مقارنة الصور ومحاولة اكتشاف القطع على المربعات، وما زال تجريبيًا.</p>
   </section>
@@ -33,7 +33,19 @@
       <button class="secondary" id="start-screen">مشاركة نافذة الشطرنج (كمبيوتر)</button>
       <button class="secondary" id="calibrate" disabled>تحديد زوايا الرقعة</button>
      </div>
-     <p class="helper">خيار مشاركة النافذة يعمل على متصفح كمبيوتر يدعم مشاركة الشاشة، ويطلب منك اختيار نافذة كل مرة. على الآيفون استخدم الكاميرا.</p>
+     <p class="helper">للتجربة ضد بوت إلكتروني على الكمبيوتر استخدم «مشاركة النافذة» إن كانت متاحة، أو كاميرا الهاتف الموجهة إلى الشاشة. النموذج الجديد متخصّص في القطع ثنائية الأبعاد على الشاشة.</p>
+     <label for="vision-mode">طريقة قراءة الرقعة</label>
+     <select id="vision-mode" aria-label="طريقة التعرف على القطع">
+       <option value="model" selected>نموذج ذكاء اصطناعي مدرّب (ONNX) — للرقع الإلكترونية</option>
+       <option value="legacy">المقارنة البصرية القديمة — تجريبية للرقع الحقيقية</option>
+     </select>
+     <div class="scan-indicator" id="ai-vision-state">تحميل النموذج عند بدء المراقبة</div>
+     <div class="recovery-panel">
+       <strong>فقدت المزامنة؟ اقرأ الوضعية من صورة النموذج</strong>
+       <p class="helper">العملية تحتاج موافقتك؛ الصورة وحدها لا تخبرنا بحقوق التبييت أو الأخذ بالتجاوز أو دور اللعب.</p>
+       <select id="ml-turn" aria-label="الدور بعد الاستيراد"><option value="w">دور الأبيض</option><option value="b">دور الأسود</option></select>
+       <button class="secondary" id="ml-recover" disabled>استعادة الوضعية من النموذج بعد مراجعتها</button>
+     </div>
      <div class="camera-actions">
       <button class="secondary" id="baseline" disabled>حفظ الوضع الحالي</button>
       <button class="secondary" id="detect" disabled>قراءة النقلة بالكاميرا</button>
@@ -51,6 +63,7 @@
      <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
      <div class="toggle-line"><label for="auto-accept">اعتماد النقلات المؤكدة تلقائيًا (تجريبي)</label><input type="checkbox" id="auto-accept" disabled /></div>
      <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
+     <p class="helper">نموذج Fenshot المرخّص MIT يقرأ 64 مربعًا بنموذج CNN مدرّب محليًا داخل متصفحك. لا ترفع صورك إلى خادم. نموذج الرقعة الإلكترونية ليس نموذجًا للتعرف على الخشب والقطع ثلاثية الأبعاد.</p>
      <p class="helper">يتجدد المرجع تلقائيًا كل بضع ثوانٍ <strong>فقط عند التحقق أن وضعية القطع لم تتغير</strong>. لا يمكن للنظام أن يمحو نقلة لم يقرأها لمجرد مرور الوقت. أُسرع الفحص إلى كل 0.7 ثانية تقريبًا أثناء نشاط الصفحة.</p>
      <p class="helper">إذا ظهر «بانتظار الاعتماد»، لن يقرأ البرنامج نقلة أخرى حتى تقبل أو ترفض الاقتراح. وإذا اختلفت الرقعتان، صحح الوضعية ثم استخدم «استعادة المزامنة»؛ لا تُعِد حفظ المرجع مع رقعتين مختلفتين.</p>
      <p class="helper">تنبيه: السهم الأخضر هو اقتراح المحرك، وليس دليلًا أن الكاميرا قرأت حركة. يجب بدء الرقعتين من نفس الوضعية، وحفظ المرجع قبل النقلة التالية.</p><p class="helper" id="vision-message" role="status">الخطوة 1: شغّل الكاميرا. ثم حدّد الزوايا الأربع على الصورة بالترتيب.</p>
