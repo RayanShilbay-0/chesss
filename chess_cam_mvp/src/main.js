@@ -1,6 +1,8 @@
 import { Chess } from 'chess.js';
 import { ChessEngine } from './engine.js';
 import { CameraVision } from './vision.js';
+import { TrainedChessVision } from './trained-vision.js';
+import { inferCastling } from '@scoriiu/fenshot';
 
 const $=id=>document.getElementById(id);
 const game=new Chess();
@@ -16,6 +18,12 @@ const sideLabel=s=>s==='w'?'الأبيض':'الأسود';
 
 const vision=new CameraVision($('camera'),$('camera-overlay'),$('video-stage'),(message)=>$('vision-message').textContent=message);
 const engine=new ChessEngine(engineEvent);
+const trainedVision=new TrainedChessVision(vision);
+let mlBusy=false,mlLastAt=0,mlCandidate='',mlAgreement=0,mlScanCount=0;
+let mlLastResult=null,mlLastPrediction=null;
+const modelMode=()=>$('vision-mode').value==='model';
+function resetModelTracking(){mlCandidate='';mlAgreement=0;mlLastResult=null;mlLastPrediction=null;mlLastAt=0;}
+
 
 function moveSAN(uci,fen=game.fen()){
   const copy=new Chess(fen);
@@ -156,6 +164,13 @@ function setCameraButtons(){
   state.classList.toggle('scanning',!!(monitoring&&!paused&&!pending&&!warningNoSync&&!stale));
   state.classList.toggle('attention',!!(pending||warningNoSync||stale));
   $('auto-scan').checked=monitoring;
+  $('ai-vision-state').textContent=modelMode()?
+    (mlBusy?'النموذج يحلل الصورة…':mlLastResult?
+      'CNN | دقة متوسطة: '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% | '+mlScanCount+' فحص':'النموذج المدرب جاهز للتحميل عند حفظ البداية'):
+    'الوضع التجريبي القديم: اكتشاف تغيّر المربعات';
+  $('ai-vision-state').classList.toggle('scanning',!!(modelMode()&&monitoring&&!mlBusy));
+  $('ml-recover').disabled=!mlLastPrediction||mlLastPrediction.meanConfidence<.75||
+    !mlLastPrediction.placement.includes('K')||!mlLastPrediction.placement.includes('k');
   $('start-camera').textContent=on?'إيقاف الكاميرا':'تشغيل الكاميرا';
   $('camera-state').textContent=on?(vision.sourceKind==='screen'?'نافذة الكمبيوتر مباشرة':'الكاميرا مباشرة'):'الكاميرا متوقفة';
   $('start-screen').textContent=on&&vision.sourceKind==='screen'?'إيقاف مشاركة النافذة':'مشاركة نافذة الشطرنج';
@@ -183,8 +198,9 @@ function playCameraSequence(sequence){
     }
     selected=null;stableHits=0;stableKey='';lastScanStatus='';
     hideSuggestion();
-    const sync=vision.syncReference(game);
-    warningNoSync=Boolean(sync?.model?.reliable&&sync.model.baselineMismatch>=5);
+    const sync=modelMode()?{ok:true}:vision.syncReference(game);
+    warningNoSync=modelMode()?false:Boolean(sync?.model?.reliable&&sync.model.baselineMismatch>=5);
+    mlCandidate='';mlAgreement=0;
     if(warningNoSync)autoScan=false;
     unmatchedSince=0;lastRecognizedAt=Date.now();
     beginAnalysis();setCameraButtons();
@@ -196,6 +212,54 @@ function playCameraSequence(sequence){
     vision.reference=null;autoScan=false;warningNoSync=true;setCameraButtons();beginAnalysis();
     $('vision-message').textContent='تعذر اعتماد القراءة: '+String(err.message);
   }
+}
+async function readTrainedCamera({manual=false}={}){
+  if(mlBusy||pendingMove||!vision.stream||vision.corners.length!==4||vision.calibrating||game.isGameOver())return;
+  mlBusy=true;mlLastAt=Date.now();
+  $('ai-vision-state').textContent='جارٍ تشغيل نموذج CNN المدرب وقراءة القطع…';
+  try{
+    // Infer the board FROM ITS PIECES, not from last-move colored squares.
+    const {result,decoded}=await trainedVision.recognize(game);
+    mlScanCount++;mlLastPrediction=decoded;mlLastResult=result;
+    lastReadAt=Date.now();
+    // Late async results must not apply after camera/calibration or game reset.
+    if(!modelMode()||!vision.stream)return;
+    if(result.kind==='move'){
+      if(result.key===mlCandidate)mlAgreement++;else{mlCandidate=result.key;mlAgreement=1;}
+      const text='النموذج يقترح '+result.key+
+        ' | الثقة المتوسطة '+Math.round(decoded.meanConfidence*100)+'%'+
+        ' | تحقق '+mlAgreement+'/2';
+      $('vision-message').textContent=text;
+      if(mlAgreement>=2){
+        const seq=result.sequence.map(m=>({from:m.from,to:m.to,promotion:m.promotion||'q'}));
+        mlCandidate='';mlAgreement=0;
+        if($('auto-accept').checked){
+          playCameraSequence(seq);
+        }else{
+          pendingMove=seq;pendingSince=Date.now();
+          $('suggestion-title').textContent='نقلة مقروءة من نموذج CNN: '+result.key;
+          $('suggestion-desc').textContent='راجع النقلات قبل الاعتماد على التقييم';
+          $('vision-suggestion').hidden=false;
+        }
+      }
+    }else{
+      mlCandidate='';mlAgreement=0;
+      const confidence=Math.round(decoded.meanConfidence*100);
+      if(result.kind==='unchanged'){
+        warningNoSync=false;
+        if(manual||mlScanCount%4===0)$('vision-message').textContent='الوضعية المصورة تطابق اللوحة الحالية. ثقة النموذج '+confidence+'%.';
+      }else if(manual||mlScanCount%2===0){
+        $('vision-message').textContent=result.kind==='unreliable'?
+          'نموذج CNN غير واثق من القطع ('+confidence+'%). قرّب الرقعة وثبّت الصورة؛ النموذج مخصص للرقع الإلكترونية.':
+          'تمت قراءة وضعية محتملة، لكنها ليست نقلة قانونية مؤكدة من وضعية ChessCam ('+confidence+'%). إذا فاتت نقلات، استخدم «استعادة الوضع من النموذج» بعد مراجعة القطع.';
+      }
+    }
+    setCameraButtons();
+  }catch(err){
+    mlCandidate='';mlAgreement=0;
+    $('ai-vision-state').textContent='تعذر تحميل نموذج CNN: '+String(err.message).slice(0,160);
+    $('vision-message').textContent='فشل تشغيل نموذج التعرف على القطع: '+String(err.message)+'. جرّب إعادة فتح الصفحة أو استخدام اتصال مستقر.';
+  }finally{mlBusy=false;setCameraButtons();}
 }
 function readCamera(silent=false){
   if(pendingMove){setCameraButtons();return;}
@@ -292,17 +356,46 @@ $('baseline').addEventListener('click',()=>{
   try{
     const model=vision.saveReference(game);hideSuggestion();
     stableHits=0;stableKey='';lastScanStatus='';
-    autoScan=true;warningNoSync=Boolean(model?.reliable&&model.baselineMismatch>=5);unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
+    autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
+    unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
+    resetModelTracking();if(modelMode())trainedVision.warmUp();
     setCameraButtons();
-    $('vision-message').textContent=warningNoSync?
-      'تحذير: توزيع القطع داخل الكاميرا لا يطابق اللوحة الرقمية. صحّحها أو استورد FEN، ثم أعد حفظ الوضع.':
-      'تم حفظ المرجع وتشغيل قراءة القطع ونقلات الأبيض والأسود. ابدأ التجربة من الوضعية المتطابقة.';
+    $('vision-message').textContent=modelMode()?
+      'تم تشغيل نموذج فحص القطع المدرب. ستبدأ قراءة نقلات الطرفين آليًا بعد تحميل ONNX. اختر صورة رقمية واضحة للرقعة؛ النموذج ليس مدربًا على القطع الخشبية.':
+      warningNoSync?'توجد مشكلة توافق؛ صحح الرقعة ثم أعد المعايرة.':
+      'تم حفظ مرجع الحركة التقليدي.';
   }catch(e){$('vision-message').textContent=e.message;}
 });
-$('detect').addEventListener('click',()=>readCamera(false));
+$('detect').addEventListener('click',()=>{
+  if(modelMode())void readTrainedCamera({manual:true});
+  else readCamera(false);
+});
+$('vision-mode').addEventListener('change',()=>{
+  resetModelTracking();hideSuggestion();
+  warningNoSync=false;mlScanCount=0;
+  if(modelMode()){trainedVision.warmUp();$('auto-accept').checked=true;}
+  setCameraButtons();
+  $('vision-message').textContent=modelMode()?
+    'تم اختيار نموذج ONNX المدرب على رقع الشطرنج الإلكترونية. يمكنك معايرة الرقعة وحفظ الوضع؛ لن يعيد المراقب حفظ وضعية خاطئة.':
+    'الوضع التقليدي للكاميرا الحقيقية لا يستخدم النموذج المدرّب؛ دقته أقل.';
+});
+$('ml-recover').addEventListener('click',()=>{
+  try{
+    const read=mlLastPrediction;
+    if(!read||read.meanConfidence<.75)throw new Error('لا توجد صورة موثوقة بما يكفي لتصحيح الوضعية.');
+    const board=read.placement,turn=$('ml-turn').value;
+    const castling=inferCastling(board);
+    const target=new Chess(board+' '+turn+' '+castling+' - 0 1');
+    if(!window.confirm('سوف يتم استبدال لوحة ChessCam بالقطع التي قرأها النموذج ومسح سجل النقلات. راجع القطع أولًا. متابعة؟'))return;
+    game.load(target.fen());selected=null;hideSuggestion();warningNoSync=false;
+    resetModelTracking();beginAnalysis();autoScan=true;
+    $('vision-message').textContent='تم استيراد الوضعية المعروفة للنموذج، لكن حقوق التبييت والأخذ بالتجاوز لا يمكن معرفتها من الصورة وحدها. تابع تدريبك مع التحقق منها.';
+    setCameraButtons();
+  }catch(err){$('vision-message').textContent='تعذر تصحيح الوضعية: '+String(err.message);}
+});
 $('auto-scan').addEventListener('change',e=>{
   autoScan=e.target.checked&&!!vision.reference;
-  stableHits=0;stableKey='';lastScanStatus='';
+  stableHits=0;stableKey='';lastScanStatus='';mlCandidate='';mlAgreement=0;
   $('vision-message').textContent=autoScan?'المراقبة تعمل الآن. جرّب تحريك قطعة واحدة، ثم انتظر حتى يستقر الفيديو.':'تم إيقاف قراءة النقلات تلقائيًا.';
   setCameraButtons();
 });
@@ -346,7 +439,8 @@ $('resync').addEventListener('click',()=>{
     if(!window.confirm('هل لوحة ChessCam الرقمية مطابقة تمامًا للرقعة الظاهرة الآن بالكاميرا؟ إذا كانت مختلفة، صحّح النقلات أولًا أو استورد FEN.'))return;
     hideSuggestion();
     const model=vision.saveReference(game);
-    autoScan=true;warningNoSync=Boolean(model?.reliable&&model.baselineMismatch>=5);unmatchedSince=0;
+    autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
+    resetModelTracking();if(modelMode())trainedVision.warmUp();unmatchedSince=0;
     lastReadAt=0;lastScanStatus='';stableHits=0;stableKey='';
     lastRecognizedAt=Date.now();
     setCameraButtons();beginAnalysis();
@@ -374,7 +468,11 @@ document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&vision.stream&&autoScan) $('vision-message').textContent='عادت الكاميرا إلى الواجهة؛ المراقبة تتحقق من الوضعية الآن.';
 });
 autoInterval=setInterval(()=>{
-  if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen'))readCamera(true);
+  if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen')){
+    if(modelMode()){
+      if(!mlBusy&&Date.now()-mlLastAt>=1400)void readTrainedCamera();
+    }else readCamera(true);
+  }
   setCameraButtons();
 },700);
 window.addEventListener('pagehide',()=>{vision.stop();engine.close();if(autoInterval)clearInterval(autoInterval);});
