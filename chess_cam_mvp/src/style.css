@@ -14,3 +14,16 @@
   background:rgba(12,52,38,.93);border:1px solid #b2ed91;
   color:#f0ffd7;font-size:13px;
 }
+.scan-indicator{
+  padding:9px 12px;border-radius:10px;margin-top:12px;
+  color:#ffd9a1;background:#4b392a;border:1px solid #916f45;
+  text-align:center;font-weight:700;font-size:12px;
+}
+.scan-indicator.scanning{
+  background:#163e32;border-color:#5fa97e;color:#dcffd0;
+}
+.scan-indicator.scanning::before{
+  content:"";display:inline-block;vertical-align:middle;
+  width:8px;height:8px;background:#82f2a5;border-radius:50%;
+  margin-inline-end:9px;box-shadow:0 0 0 4px #82f2a522;
+}
