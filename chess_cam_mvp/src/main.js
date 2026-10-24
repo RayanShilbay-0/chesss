@@ -143,7 +143,7 @@ function setCameraButtons(){
   const on=!!vision.stream,ready=vision.corners.length===4,ref=!!vision.reference;
   const monitoring=on&&ref&&autoScan;
   const state=$('scan-indicator');
-  const paused=monitoring&&document.hidden;
+  const paused=monitoring&&document.hidden&&vision.sourceKind!=='screen';
   const stale=monitoring&&lastReadAt&&Date.now()-lastReadAt>7000;
   const pending=!!pendingMove;
   state.textContent=!on?'الكاميرا متوقفة':!ready?'بانتظار معايرة الرقعة':!ref?'بانتظار حفظ صورة مرجعية':
@@ -362,7 +362,7 @@ document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&vision.stream&&autoScan) $('vision-message').textContent='عادت الكاميرا إلى الواجهة؛ المراقبة تتحقق من الوضعية الآن.';
 });
 autoInterval=setInterval(()=>{
-  if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&!document.hidden)readCamera(true);
+  if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen'))readCamera(true);
   setCameraButtons();
 },1100);
 window.addEventListener('pagehide',()=>{vision.stop();engine.close();if(autoInterval)clearInterval(autoInterval);});
