@@ -1,5 +1,5 @@
 import { createRecognizer } from '@scoriiu/fenshot';
-import { TrainedChessVision } from './trained-vision.js';
+import { TrainedChessVision, wasmAssetUrls } from './trained-vision.js';
 import { Chess } from 'chess.js';
 export async function runModelGoldenFixture(name,side){
   const base=import.meta.env.BASE_URL||'/';
@@ -12,7 +12,7 @@ export async function runModelGoldenFixture(name,side){
   const cx=canvas.getContext('2d',{willReadFrequently:true});
   cx.drawImage(bitmap,0,0);const image=cx.getImageData(0,0,bitmap.width,bitmap.height);
   const standard=createRecognizer({
-    modelUrl:base+'models/chess-tiles-v2.onnx',wasmPaths:base+'ort/'
+    modelUrl:base+'models/chess-tiles-v2.onnx',wasmPaths:wasmAssetUrls()
   });
   const detected=await standard.recognize(blob);
   if(!detected)throw new Error('Upstream Fenshot model failed to locate source fixture');
