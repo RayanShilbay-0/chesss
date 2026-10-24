@@ -167,19 +167,28 @@ export class CameraVision {
    return arr;
  }
  difference(base,now){
-   const shifts=[[],[],[]];
-   for(let i=0;i<64;i++)for(let j=0;j<base[i].length;j++){
-     for(let k=0;k<3;k++)shifts[k].push(now[i][j][k]-base[i][j][k]);
-   }
-   const bias=shifts.map(median),scores=[];
+   // A chess website often highlights the two squares of its last move.
+   // Local texture removes most flat square-color changes without removing piece detail.
+   const all=[[],[],[]];
+   for(let i=0;i<64;i++)for(let j=0;j<base[i].length;j++)
+     for(let k=0;k<3;k++)all[k].push(now[i][j][k]-base[i][j][k]);
+   const global=all.map(median),scores=[];
    for(let i=0;i<64;i++){
-     const ds=[];
+     const dx=[[],[],[]];
+     for(let j=0;j<base[i].length;j++)for(let k=0;k<3;k++)
+       dx[k].push(now[i][j][k]-base[i][j][k]-global[k]);
+     const local=dx.map(median),raw=[],detail=[];
      for(let j=0;j<base[i].length;j++){
-       let delta=0;
-       for(let k=0;k<3;k++)delta+=Math.abs(now[i][j][k]-base[i][j][k]-bias[k])/3;
-       ds.push(delta);
+       let a=0,b=0;
+       for(let k=0;k<3;k++){
+         a+=Math.abs(dx[k][j])/3;
+         b+=Math.abs(dx[k][j]-local[k])/3;
+       }
+       raw.push(a);detail.push(b);
      }
-     scores.push(.48*quantile(ds,.5)+.52*quantile(ds,.78));
+     const absScore=.48*quantile(raw,.5)+.52*quantile(raw,.78);
+     const patternScore=.42*quantile(detail,.5)+.58*quantile(detail,.78);
+     scores.push(.24*absScore+1.12*patternScore);
    }
    return scores;
  }
@@ -193,7 +202,7 @@ export class CameraVision {
    const current=this.features(this.frame());
    const scores=this.difference(this.reference,current);
    const background=median(scores),p75=quantile(scores,.75);
-   const threshold=Math.max(8,background*1.85,p75*1.3);
+   const threshold=Math.max(6,background*2.1,p75*1.45);
    const changed=scores.filter(s=>s>threshold).length;
    const motion=this.lastScan?this.difference(this.lastScan,current):null;
    this.lastScan=current;
