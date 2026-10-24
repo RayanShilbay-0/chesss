@@ -6,7 +6,8 @@ const $=id=>document.getElementById(id);
 const game=new Chess();
 let mySide='w',selected=null,pendingMove=null,analyzeLines=[],lastDepth=0,engineAlive=false;
 let lastEngineFen=null,autoScan=false,stableKey='',stableHits=0,autoInterval=null;
-let lastScanStatus='';
+let lastScanStatus='',lastReadAt=0,lastRecognizedAt=0,unmatchedSince=0;
+let warningNoSync=false,pendingSince=0,cameraError='';
 const glyph={w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟︎'}};
 const files='abcdefgh';
 const arPieces={p:'بيدق',n:'حصان',b:'فيل',r:'قلعة',q:'وزير',k:'ملك'};
@@ -140,8 +141,17 @@ function setCameraButtons(){
   const on=!!vision.stream,ready=vision.corners.length===4,ref=!!vision.reference;
   const monitoring=on&&ref&&autoScan;
   const state=$('scan-indicator');
-  state.textContent=!on?'الكاميرا متوقفة':!ready?'بانتظار معايرة الرقعة':!ref?'بانتظار حفظ الوضع المرجعي':monitoring?'المراقبة تعمل تلقائيًا':'المراقبة متوقفة';
-  state.classList.toggle('scanning',monitoring);
+  const paused=monitoring&&document.hidden;
+  const stale=monitoring&&lastReadAt&&Date.now()-lastReadAt>7000;
+  const pending=!!pendingMove;
+  state.textContent=!on?'الكاميرا متوقفة':!ready?'بانتظار معايرة الرقعة':!ref?'بانتظار حفظ صورة مرجعية':
+    pending?'قراءة بانتظار الاعتماد أو الإلغاء — الفحص مؤقتًا متوقف':
+    paused?'المراقبة متوقفة مؤقتًا لأن الصفحة بالخلفية':
+    warningNoSync?'الرقعتان قد تكونان غير متزامنتين — استخدم استعادة المزامنة':
+    stale?'لم تصل قراءة من الكاميرا مؤخرًا':
+    monitoring?'المراقبة نشطة: تبحث عن النقلات':'المراقبة متوقفة';
+  state.classList.toggle('scanning',!!(monitoring&&!paused&&!pending&&!warningNoSync&&!stale));
+  state.classList.toggle('attention',!!(pending||warningNoSync||stale));
   $('auto-scan').checked=monitoring;
   $('start-camera').textContent=on?'إيقاف الكاميرا':'تشغيل الكاميرا';
   $('camera-state').textContent=on?'بث مباشر':'الكاميرا متوقفة';
@@ -149,8 +159,12 @@ function setCameraButtons(){
   $('detect').disabled=!on||!ref;$('auto-scan').disabled=!on||!ref;
   $('expand-video').disabled=!on;
   $('auto-accept').disabled=!on||!ref;
+  $('resync').disabled=!on||!ready;
+  $('capture-status').textContent=!on?'الكاميرا غير متصلة':
+    'آخر فحص: '+(lastReadAt?new Date(lastReadAt).toLocaleTimeString('ar-JO'):'لم يبدأ')+
+    ' | آخر نقلات مؤكدة: '+(lastRecognizedAt?new Date(lastRecognizedAt).toLocaleTimeString('ar-JO'):'لا يوجد');
 }
-function hideSuggestion(){$('vision-suggestion').hidden=true;pendingMove=null;}
+function hideSuggestion(){$('vision-suggestion').hidden=true;pendingMove=null;pendingSince=0;}
 function playCameraSequence(sequence){
   if(!sequence?.length||game.isGameOver())return;
   let applied=0;
@@ -162,25 +176,34 @@ function playCameraSequence(sequence){
       applied++;names.push(move.san);
     }
     selected=null;stableHits=0;stableKey='';lastScanStatus='';
-    hideSuggestion();vision.syncReference();beginAnalysis();setCameraButtons();
+    hideSuggestion();vision.syncReference();
+    warningNoSync=false;unmatchedSince=0;lastRecognizedAt=Date.now();
+    beginAnalysis();setCameraButtons();
     $('vision-message').textContent='تم تسجيل '+applied+' نقلة من الكاميرا: '+names.join('، ')+'.';
   }catch(err){
     while(applied-->0)game.undo();
-    vision.reference=null;autoScan=false;setCameraButtons();beginAnalysis();
+    vision.reference=null;autoScan=false;warningNoSync=true;setCameraButtons();beginAnalysis();
     $('vision-message').textContent='تعذر اعتماد القراءة: '+String(err.message);
   }
 }
 function readCamera(silent=false){
-  if(pendingMove||game.isGameOver()||vision.calibrating)return;
+  if(pendingMove){setCameraButtons();return;}
+  if(game.isGameOver()||vision.calibrating)return;
   try{
     const result=vision.propose(game);
+    lastReadAt=Date.now();
+    cameraError='';
     if(!result.credible){
       stableHits=0;stableKey='';
-      if((result.changed||0)>=2)vision.setSuggestedMove(null);
+      if((result.changed||0)>=2){
+        vision.setSuggestedMove(null);
+        if(!unmatchedSince)unmatchedSince=Date.now();
+        if(Date.now()-unmatchedSince>7000)warningNoSync=true;
+      }else if((result.changed||0)===0 && !result.unstable)unmatchedSince=0;
       if(!silent||result.unstable||lastScanStatus!==result.reason)
         $('vision-message').textContent=result.message+(result.changed!==undefined?' | مربعات تغيّرت: '+result.changed:'');
       lastScanStatus=result.reason||'unknown';
-      return;
+      setCameraButtons();return;
     }
     const seq=result.top.sequence.map(x=>({from:x.from,to:x.to,promotion:x.promotion||'q'}));
     const key=seq.map(x=>x.from+x.to+x.promotion).join(' ');
@@ -188,19 +211,24 @@ function readCamera(silent=false){
       stableHits=stableKey===key?stableHits+1:1;stableKey=key;
       if(stableHits<2){
         $('vision-message').textContent='تم رصد '+seq.length+' نقلة محتملة. جارٍ التحقق من ثبات القراءة…';
-        return;
+        setCameraButtons();return;
       }
     }
-    stableHits=0;stableKey='';lastScanStatus='';
+    stableHits=0;stableKey='';lastScanStatus='';unmatchedSince=0;
     if(silent&&$('auto-accept').checked){
       playCameraSequence(seq);return;
     }
-    pendingMove=seq;
+    pendingMove=seq;pendingSince=Date.now();
     $('suggestion-title').textContent='النقلات المحتملة: '+result.top.sequence.map(x=>x.san).join('، ');
     $('suggestion-desc').textContent=result.top.key+' · تأكد من صحة النقلات قبل اعتمادها.';
     $('vision-suggestion').hidden=false;
-    $('vision-message').textContent=result.message;
-  }catch(err){$('vision-message').textContent='خطأ قراءة الكاميرا: '+String(err.message);}
+    $('vision-message').textContent=result.message+' راجع الاقتراح أسفل الكاميرا؛ الفحص متوقف إلى أن تختار اعتماد أو إلغاء.';
+    setCameraButtons();
+  }catch(err){
+    cameraError=String(err.message);warningNoSync=true;
+    $('vision-message').textContent='خطأ في قراءة الكاميرا: '+cameraError;
+    setCameraButtons();
+  }
 }
 
 $('start-camera').addEventListener('click',async()=>{
@@ -224,7 +252,7 @@ $('baseline').addEventListener('click',()=>{
   try{
     vision.saveReference();hideSuggestion();
     stableHits=0;stableKey='';lastScanStatus='';
-    autoScan=true;
+    autoScan=true;warningNoSync=false;unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
     setCameraButtons();
     $('vision-message').textContent='تم التقاط المرجع وتفعيل المراقبة. تأكد أن لوحة ChessCam تطابق الرقعة المصورة الآن؛ يمكن اكتشاف نقلة أو نقلتين حدثتا بعد هذه اللحظة، وليس ما سبق المرجع.';
   }catch(e){$('vision-message').textContent=e.message;}
@@ -243,7 +271,11 @@ $('expand-video').addEventListener('click',()=>{
   document.body.classList.toggle('camera-expanded',expanded);
 });
 $('accept-suggestion').addEventListener('click',()=>{if(pendingMove)playCameraSequence(pendingMove);});
-$('reject-suggestion').addEventListener('click',()=>{hideSuggestion();$('vision-message').textContent='تم تجاهل الاقتراح. يمكنك إعادة قراءة النقلة أو تصحيحها من اللوحة.';});
+$('reject-suggestion').addEventListener('click',()=>{
+  hideSuggestion();stableHits=0;stableKey='';warningNoSync=true;
+  $('vision-message').textContent='تم تجاهل القراءة. إذا تغيّرت الرقعة بالفعل، صحح لوحة ChessCam أولًا ثم استخدم استعادة المزامنة.';
+  setCameraButtons();
+});
 $('my-side').addEventListener('change',e=>{
   mySide=e.target.value;vision.side=mySide;
   vision.reference=null;autoScan=false;$('auto-scan').checked=false;hideSuggestion();
