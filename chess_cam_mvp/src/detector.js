@@ -100,6 +100,7 @@ export function recognizeSequence(game,scores,threshold,opts={}){
     result=assess();
   }
   const top=result.best,margin=result.margin,credible=result.credible;
+  const hasOccupancy=Boolean(occ?.reliable);
   return {
     credible,reason:credible?'matched':'ambiguous',observed:indices,
     top:top||null,alternatives:candidates.slice(0,3),
