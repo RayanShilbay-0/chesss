@@ -41,3 +41,9 @@
 #ml-turn{max-width:none;width:100%;margin:9px 0 6px}
 #ml-recover{width:100%;margin-top:5px}
 #ai-vision-state{overflow-wrap:anywhere;font-size:11px;line-height:1.7}
+
+.setting-label{display:block;margin:12px 0 5px;font-size:12px;font-weight:700;color:#c9f0bd}
+.setting-control{width:100%;max-width:none;white-space:normal;font-size:12px;padding:11px;line-height:1.7}
+#vision-performance{font-size:11px;direction:rtl}
+#engine-mode{margin-bottom:14px}
+#auto-board{width:100%}

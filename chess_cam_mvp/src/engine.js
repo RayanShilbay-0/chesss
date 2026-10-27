@@ -1,75 +1,100 @@
+// Two-phase UCI search: a quick first move, then deeper MultiPV analysis.
+// Full Stockfish 19 is opt-in; the browser-friendly lite NNUE is default.
 export class ChessEngine {
   constructor(onUpdate){
     this.onUpdate=onUpdate;
-    this.worker=null;
-    this.ready=false;
-    this.activeFen=null;
-    this.queuedFen=null;
-    this.lines=new Map();
-    this.depth=0;
-    this.lastFen=null;
+    this.worker=null;this.ready=false;this.activeFen=null;this.queuedFen=null;
+    this.lines=new Map();this.depth=0;this.lastFen=null;
+    this.mode='lite';this.stage=null;this.startTime=0;
   }
   init(){
-    try {
-      // Using a same-origin worker is important: the accompanying WASM is loaded relative to it.
-      const base=import.meta.env.BASE_URL || '/';
-      this.worker=new Worker(`${base}engine/stockfish-19-lite-single.js`);
-      this.worker.onmessage=(event)=>this.receive(String(event.data));
-      this.worker.onerror=(e)=>this.onUpdate({kind:'error',message:'تعذر تشغيل المحرك. تأكد من وجود ملفات Stockfish بعد بناء الموقع.'});
-      this.worker.postMessage('uci');
-      this.onUpdate({kind:'loading'});
-    } catch(err){this.onUpdate({kind:'error',message:String(err.message)});}
+    try{
+      const base=import.meta.env.BASE_URL||'/';
+      const filename=this.mode==='full'?'stockfish-19-single.js':'stockfish-19-lite-single.js';
+      const worker=new Worker(base+'engine/'+filename);
+      this.worker=worker;this.ready=false;this.activeFen=null;this.stage=null;
+      worker.onmessage=e=>{if(this.worker===worker)this.receive(String(e.data));};
+      worker.onerror=()=>{
+        if(this.worker!==worker)return;
+        this.onUpdate({kind:'error',message:'تعذر تشغيل Stockfish '+this.mode});
+        if(this.mode==='full'){
+          this.setMode('lite',this.lastFen);
+          this.onUpdate({kind:'fallback',message:'تعذر تحميل المحرك العميق؛ رجعنا إلى Lite تلقائيًا.'});
+        }
+      };
+      worker.postMessage('uci');
+      this.onUpdate({kind:'loading',mode:this.mode});
+    }catch(e){this.onUpdate({kind:'error',message:String(e.message)})}
+  }
+  setMode(mode,fen){
+    if(mode!=='full'&&mode!=='lite')throw new Error('Invalid engine mode');
+    if(this.mode===mode&&this.worker)return;
+    this.close();this.mode=mode;
+    this.queuedFen=fen||this.lastFen;this.lastFen=this.queuedFen;
+    this.init();
   }
   receive(line){
     if(line.includes('uciok')){
-      this.worker.postMessage('setoption name MultiPV value 3');
-      this.worker.postMessage('isready');
-      return;
+      this.worker.postMessage('setoption name Hash value 32');
+      this.worker.postMessage('setoption name MultiPV value 1');
+      this.worker.postMessage('isready');return;
     }
     if(line.includes('readyok')){
-      this.ready=true;
-      this.onUpdate({kind:'ready'});
-      this.pump();
-      return;
+      this.ready=true;this.onUpdate({kind:'ready',mode:this.mode});
+      this.pump();return;
     }
-    if(line.startsWith('info ') && this.activeFen){
+    if(line.startsWith('info ')&&this.activeFen){
       const dp=Number(line.match(/\bdepth (\d+)/)?.[1]||0);
       const pv=Number(line.match(/\bmultipv (\d+)/)?.[1]||1);
       const move=line.match(/\bpv ([a-h][1-8][a-h][1-8][qrbn]?)/)?.[1];
       const cp=line.match(/\bscore cp (-?\d+)/)?.[1];
       const mate=line.match(/\bscore mate (-?\d+)/)?.[1];
-      if(move && (cp!==undefined||mate!==undefined)){
-        this.lines.set(pv,{move,cp:cp!==undefined?Number(cp):null,mate:mate!==undefined?Number(mate):null,depth:dp});
+      if(move&&(cp!==undefined||mate!==undefined)){
+        this.lines.set(pv,{move,cp:cp===undefined?null:Number(cp),
+          mate:mate===undefined?null:Number(mate),depth:dp});
         this.depth=Math.max(this.depth,dp);
-        if(this.activeFen===this.lastFen && dp>=5){
-          this.onUpdate({kind:'analysis',fen:this.activeFen,lines:[...this.lines.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]),depth:dp});
-        }
+        if(this.activeFen===this.lastFen&&dp>=4)
+          this.onUpdate({kind:'analysis',fen:this.activeFen,
+            lines:this.orderedLines(),depth:dp,stage:this.stage});
       }
     }
     if(line.startsWith('bestmove')){
-      const fin=this.activeFen;
-      this.activeFen=null;
-      if(fin===this.lastFen && !this.queuedFen){
-        this.onUpdate({kind:'done',fen:fin,lines:[...this.lines.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]),depth:this.depth});
+      const finished=this.activeFen;
+      if(this.queuedFen && this.queuedFen!==finished){
+        this.activeFen=null;this.stage=null;this.pump();return;
       }
+      if(this.stage==='quick'&&finished===this.lastFen){
+        this.onUpdate({kind:'analysis',fen:finished,lines:this.orderedLines(),
+          depth:this.depth,stage:'quick'});
+        this.stage='deep';this.depth=0;this.lines.clear();
+        this.worker.postMessage('setoption name MultiPV value 3');
+        this.worker.postMessage('position fen '+finished);
+        this.worker.postMessage('go movetime '+(this.mode==='full'?1700:880));
+        return;
+      }
+      this.activeFen=null;this.stage=null;
+      if(finished===this.lastFen&&!this.queuedFen)
+        this.onUpdate({kind:'done',fen:finished,lines:this.orderedLines(),depth:this.depth});
       this.pump();
     }
   }
+  orderedLines(){return [...this.lines.entries()].sort((a,b)=>a[0]-b[0]).map(e=>e[1])}
   analyze(fen){
-    this.lastFen=fen;
-    this.queuedFen=fen;
-    if(this.activeFen && this.activeFen!==fen) this.worker?.postMessage('stop');
+    this.lastFen=fen;this.queuedFen=fen;
+    if(this.activeFen&&this.activeFen!==fen)this.worker?.postMessage('stop');
     this.pump();
   }
   pump(){
-    if(!this.ready || this.activeFen || !this.queuedFen)return;
-    const fen=this.queuedFen;
-    this.queuedFen=null;
-    this.activeFen=fen;
-    this.lines.clear();this.depth=0;
-    this.worker.postMessage(`position fen ${fen}`);
-    this.worker.postMessage('go movetime 1200');
-    this.onUpdate({kind:'thinking'});
+    if(!this.ready||this.activeFen||!this.queuedFen||!this.worker)return;
+    const fen=this.queuedFen;this.queuedFen=null;this.activeFen=fen;this.stage='quick';
+    this.lines.clear();this.depth=0;this.startTime=Date.now();
+    this.worker.postMessage('setoption name MultiPV value 1');
+    this.worker.postMessage('position fen '+fen);
+    this.worker.postMessage('go movetime '+(this.mode==='full'?280:180));
+    this.onUpdate({kind:'thinking',mode:this.mode});
   }
-  close(){this.worker?.terminate();this.worker=null;}
+  close(){
+    this.worker?.terminate();this.worker=null;this.ready=false;
+    this.activeFen=null;this.stage=null;
+  }
 }

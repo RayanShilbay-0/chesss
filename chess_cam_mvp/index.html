@@ -15,7 +15,7 @@
  </header>
  <main class="shell">
   <section class="intro">
-   <span class="eyebrow">نسخة 0.8 · نموذج CNN مدرب للتعرّف على القطع</span>
+   <span class="eyebrow">نسخة 0.9 · Fast Vision + Stockfish Pro</span>
    <h1>شوف الرقعة. افهم النقلة.<br /><em>خطّط للرد الأقوى.</em></h1>
    <p>للتجربة ضد بوت على الكمبيوتر: شارك نافذة الشطرنج مباشرة لتقليل أخطاء تصوير الشاشة. وللرقعة الحقيقية استخدم كاميرا الهاتف. يجمع التتبع بين مقارنة الصور ومحاولة اكتشاف القطع على المربعات، وما زال تجريبيًا.</p>
   </section>
@@ -34,12 +34,20 @@
       <button class="secondary" id="calibrate" disabled>تحديد زوايا الرقعة</button>
      </div>
      <p class="helper">للتجربة ضد بوت إلكتروني على الكمبيوتر استخدم «مشاركة النافذة» إن كانت متاحة، أو كاميرا الهاتف الموجهة إلى الشاشة. النموذج الجديد متخصّص في القطع ثنائية الأبعاد على الشاشة.</p>
+     <div class="camera-actions"><button class="secondary" id="auto-board" disabled>تحديد الرقعة تلقائيًا (Fenshot)</button></div>
      <label for="vision-mode">طريقة قراءة الرقعة</label>
      <select id="vision-mode" aria-label="طريقة التعرف على القطع">
        <option value="model" selected>نموذج ذكاء اصطناعي مدرّب (ONNX) — للرقع الإلكترونية</option>
        <option value="legacy">المقارنة البصرية القديمة — تجريبية للرقع الحقيقية</option>
      </select>
      <div class="scan-indicator" id="ai-vision-state">تحميل النموذج عند بدء المراقبة</div>
+     <label class="setting-label" for="scan-speed">سرعة ودقة التعرف</label>
+     <select id="scan-speed" class="setting-control">
+       <option value="turbo">Turbo — استجابة أسرع (فحص واحد عند ثقة مرتفعة)</option>
+       <option value="balanced" selected>متوازن — فحصان للتأكد</option>
+       <option value="careful">تدقيق أعلى — فحصان بإيقاع أبطأ</option>
+     </select>
+     <div class="scan-timestamp" id="vision-performance">تجهيز قياس سرعة CNN…</div>
      <div class="recovery-panel">
        <strong>فقدت المزامنة؟ اقرأ الوضعية من صورة النموذج</strong>
        <p class="helper">العملية تحتاج موافقتك؛ الصورة وحدها لا تخبرنا بحقوق التبييت أو الأخذ بالتجاوز أو دور اللعب.</p>
@@ -63,6 +71,7 @@
      <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
      <div class="toggle-line"><label for="auto-accept">اعتماد النقلات المؤكدة تلقائيًا (تجريبي)</label><input type="checkbox" id="auto-accept" disabled /></div>
      <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
+     <p class="helper">يمكن للمراقبة الذكية تخطي الصورة الساكنة، واستخدام Web Worker للتصنيف دون تجميد الواجهة. وضع Turbo أسرع لكنه يحمل احتمال خطأ أعلى إذا كانت الصورة غير مستقرة؛ وضع متوازن أفضل للاختبار.</p>
      <p class="helper">نموذج Fenshot المرخّص MIT يقرأ 64 مربعًا بنموذج CNN مدرّب محليًا داخل متصفحك. لا ترفع صورك إلى خادم. نموذج الرقعة الإلكترونية ليس نموذجًا للتعرف على الخشب والقطع ثلاثية الأبعاد.</p>
      <p class="helper">يتجدد المرجع تلقائيًا كل بضع ثوانٍ <strong>فقط عند التحقق أن وضعية القطع لم تتغير</strong>. لا يمكن للنظام أن يمحو نقلة لم يقرأها لمجرد مرور الوقت. أُسرع الفحص إلى كل 0.7 ثانية تقريبًا أثناء نشاط الصفحة.</p>
      <p class="helper">إذا ظهر «بانتظار الاعتماد»، لن يقرأ البرنامج نقلة أخرى حتى تقبل أو ترفض الاقتراح. وإذا اختلفت الرقعتان، صحح الوضعية ثم استخدم «استعادة المزامنة»؛ لا تُعِد حفظ المرجع مع رقعتين مختلفتين.</p>
@@ -80,7 +89,12 @@
    </div>
    <div class="panel analysis-panel">
      <div class="panel-title"><div><span class="section-kicker">03 / العقل</span><h2>تحليل Stockfish</h2></div><span class="chip green" id="analysis-state">تهيئة</span></div>
-     <div class="recommendation">
+     <label class="setting-label" for="engine-mode">قوة محرك التحليل</label>
+      <select id="engine-mode" class="setting-control">
+       <option value="lite" selected>Stockfish 19 Lite — فوري ومناسب للهاتف</option>
+       <option value="full">Stockfish 19 Full — تحليل أعمق للكمبيوتر (~94 MB)</option>
+      </select>
+      <div class="recommendation">
       <div class="evaluation-top"><div><small>التقييم لصالح</small><strong id="eval-side">—</strong></div><div class="eval-big" id="eval-number">—</div></div>
       <div class="eval-meter"><div class="eval-meter-fill" id="eval-fill"></div></div>
       <span class="section-kicker recommendation-kicker">أفضل نقلة في الوضعية الحالية</span>

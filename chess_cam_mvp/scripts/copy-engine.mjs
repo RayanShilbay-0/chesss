@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const root=resolve('node_modules/stockfish');
-const names=['stockfish-19-lite-single.js','stockfish-19-lite-single.wasm'];
+const names=['stockfish-19-lite-single.js','stockfish-19-lite-single.wasm',
+  'stockfish-19-single.js','stockfish-19-single.wasm'];
 const out=resolve('public/engine');
 mkdirSync(out,{recursive:true});
 function locate(dir,name,depth=0){
