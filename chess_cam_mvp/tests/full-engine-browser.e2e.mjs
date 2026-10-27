@@ -29,11 +29,11 @@ async function run(){
  assert.equal(await page.locator('#engine-mode').inputValue(),'full');
  await page.waitForFunction(
   ()=>document.querySelector('#engine-health')?.textContent.includes('Full جاهز'),
-  {timeout:125000}
+  null,{timeout:125000}
  );
  await page.waitForFunction(
   ()=>document.querySelector('#best-move')?.textContent.trim()!=='—',
-  {timeout:60000}
+  null,{timeout:60000}
  );
  const first=await page.locator('#best-move').textContent();
  const detail=await page.locator('#best-detail').textContent();
@@ -44,7 +44,7 @@ async function run(){
  await page.waitForFunction(()=>document.querySelector('#turn-status')?.textContent.includes('الأسود'));
  await page.waitForFunction(
    ()=>document.querySelector('#best-move')?.textContent.trim()!=='—',
-   {timeout:60000}
+   null,{timeout:60000}
  );
  console.log('PASS STOCKFISH FULL 19 DEFAULT — worker UCI, initial bestmove, next-position analysis');
 }
