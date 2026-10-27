@@ -115,7 +115,11 @@ function playMove(move,source){
   }catch(e){$('vision-message').textContent='نقلة غير قانونية: '+String(e.message);}
 }
 function engineEvent(event){
-  if(event.kind==='loading'){$('engine-health').textContent='المحرك قيد التشغيل';$('analysis-state').textContent='تهيئة';}
+  if(event.kind==='loading'){
+    engineAlive=false;
+    $('engine-health').textContent=event.mode==='full'?'جاري تجهيز Stockfish Full':'جاري تجهيز Stockfish Lite';
+    $('analysis-state').textContent=event.mode==='full'?'تحميل المحرك الكامل (~94 MB)':'تهيئة';
+  }
   if(event.kind==='ready'){
     engineAlive=true;$('engine-health').textContent='Stockfish '+(event.mode==='full'?'Full':'Lite')+' جاهز';$('connection-pill').querySelector('.dot').className='dot green-dot';
     $('analysis-state').textContent='جاهز';
@@ -127,7 +131,8 @@ function engineEvent(event){
   }
   if(event.kind==='fallback'){
     $('engine-mode').value='lite';
-    $('vision-message').textContent=event.message;
+    $('engine-health').textContent='استخدام Lite احتياطيًا';
+    $('best-detail').textContent=event.message;
   }
   if((event.kind==='analysis'||event.kind==='done') && event.fen===game.fen()){
     analyzeLines=event.lines;lastDepth=event.depth;lastEngineFen=event.fen;

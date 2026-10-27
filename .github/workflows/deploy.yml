@@ -69,6 +69,9 @@ jobs:
       - name: Test continuous white and black moves through trained CNN model
         working-directory: chess_cam_mvp
         run: npm run test:live-ai-e2e
+      - name: Verify the default Stockfish 19 Full WASM engine in Chromium
+        working-directory: chess_cam_mvp
+        run: npm run test:full-engine-e2e
       - name: Save browser failure screenshots
         uses: actions/upload-artifact@v4
         if: always()

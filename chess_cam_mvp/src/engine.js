@@ -1,11 +1,11 @@
 // Two-phase UCI search: a quick first move, then deeper MultiPV analysis.
-// Full Stockfish 19 is opt-in; the browser-friendly lite NNUE is default.
+// Stockfish 19 Full single-threaded is the default; Lite is a fallback.
 export class ChessEngine {
   constructor(onUpdate){
     this.onUpdate=onUpdate;
     this.worker=null;this.ready=false;this.activeFen=null;this.queuedFen=null;
     this.lines=new Map();this.depth=0;this.lastFen=null;
-    this.mode='lite';this.stage=null;this.startTime=0;
+    this.mode='full';this.stage=null;this.startTime=0;this.startupTimer=null;
   }
   init(){
     try{
@@ -13,6 +13,15 @@ export class ChessEngine {
       const filename=this.mode==='full'?'stockfish-19-single.js':'stockfish-19-lite-single.js';
       const worker=new Worker(base+'engine/'+filename);
       this.worker=worker;this.ready=false;this.activeFen=null;this.stage=null;
+      // A slow or unsupported Full WASM initialization must not leave an
+      // invisible permanent spinner. Allow initial 94 MB download first.
+      this.startupTimer=setTimeout(()=>{
+        if(this.worker!==worker||this.ready)return;
+        if(this.mode==='full'){
+          this.setMode('lite',this.lastFen);
+          this.onUpdate({kind:'fallback',message:'تعذر تجهيز Stockfish Full خلال دقيقتين، تم تشغيل Lite تلقائيًا.'});
+        }else this.onUpdate({kind:'error',message:'انتهت مهلة تحميل محرك Stockfish Lite.'});
+      },120000);
       worker.onmessage=e=>{if(this.worker===worker)this.receive(String(e.data));};
       worker.onerror=()=>{
         if(this.worker!==worker)return;
@@ -40,6 +49,7 @@ export class ChessEngine {
       this.worker.postMessage('isready');return;
     }
     if(line.includes('readyok')){
+      if(this.startupTimer){clearTimeout(this.startupTimer);this.startupTimer=null;}
       this.ready=true;this.onUpdate({kind:'ready',mode:this.mode});
       this.pump();return;
     }
@@ -94,6 +104,7 @@ export class ChessEngine {
     this.onUpdate({kind:'thinking',mode:this.mode});
   }
   close(){
+    if(this.startupTimer){clearTimeout(this.startupTimer);this.startupTimer=null;}
     this.worker?.terminate();this.worker=null;this.ready=false;
     this.activeFen=null;this.stage=null;
   }

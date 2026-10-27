@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {ChessEngine} from '../src/engine.js';
 test('Stockfish emits a quick single-PV move then the full MultiPV response',()=>{
  const events=[],commands=[],e=new ChessEngine(event=>events.push(event));
- e.worker={postMessage:s=>commands.push(s)};
+ e.mode='lite';e.worker={postMessage:s=>commands.push(s)};
  e.ready=true;
  const fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
  e.analyze(fen);
@@ -21,11 +21,29 @@ test('Stockfish emits a quick single-PV move then the full MultiPV response',()=
 });
 test('new position preempts old deep analysis instead of showing a stale move',()=>{
  const commands=[],events=[],e=new ChessEngine(x=>events.push(x));
- e.worker={postMessage:x=>commands.push(x)};e.ready=true;
+ e.mode='lite';e.worker={postMessage:x=>commands.push(x)};e.ready=true;
  e.analyze('fen1');
  e.analyze('fen2');
  assert(commands.includes('stop'));
  e.receive('bestmove e2e4');
  assert.equal(e.activeFen,'fen2');
  assert(!events.some(x=>x.kind==='done'&&x.fen==='fen1'));
+});
+
+test('full single-threaded Stockfish 19 is used by default',()=>{
+ const e=new ChessEngine(()=>{});
+ assert.equal(e.mode,'full');
+});
+test('default Full engine issues full search timings and accepts UCI readyok',()=>{
+ const commands=[],events=[],e=new ChessEngine(x=>events.push(x));
+ e.worker={postMessage:x=>commands.push(x)};e.ready=true;
+ const fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+ e.analyze(fen);
+ assert(commands.includes('go movetime 280'));
+ e.receive('info depth 6 multipv 1 score cp 32 pv e2e4');
+ e.receive('bestmove e2e4');
+ assert(commands.includes('go movetime 1700'));
+ e.receive('info depth 12 multipv 1 score cp 28 pv e2e4');
+ e.receive('bestmove e2e4');
+ assert(events.some(x=>x.kind==='done'&&x.fen===fen));
 });
