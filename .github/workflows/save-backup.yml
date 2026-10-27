@@ -1,0 +1,26 @@
+name: Save ChessCam source backup
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/save-backup.yml'
+      - 'chess_cam_mvp/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full repository at current commit
+        uses: actions/checkout@v4
+      - name: Create exact tracked source archive
+        run: |
+          git archive --format=zip --output=ChessCam_Source_Backup.zip HEAD
+          unzip -t ChessCam_Source_Backup.zip
+      - name: Upload downloadable source backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChessCam-Source-Backup
+          path: ChessCam_Source_Backup.zip
+          retention-days: 90
