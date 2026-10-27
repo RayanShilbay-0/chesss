@@ -74,16 +74,43 @@ async function run(){
  await page.locator('#baseline').click();
  await page.locator('#auto-accept').check();
  await check(page,'model-start',s=>s.state.includes('المراقبة'),8000);
+ const timings=[];
  for(const [notation,expectedTurn,expectedNumber] of [
   ['e2e4','الأسود','1'],
   ['e7e6','الأبيض','2'],
   ['g1f3','الأسود','2'],
   ['d7d5','الأبيض','3']
  ]){
+  const before=Date.now();
   await page.evaluate(move=>window.__liveChessTest.move(move),notation);
   await check(page,'live-'+notation,s=>s.turn.includes(expectedTurn)&&s.moves.includes(expectedNumber),19000);
+  timings.push(Date.now()-before);
  }
- console.log('PASS LIVE CHESS WEBSITE CAMERA MODEL: 4 consecutive moves with trained ONNX runtime');
+ // Bot replies can happen before the next model frame. The model must
+ // recognize two half-moves from a single final board position.
+ const fastStart=Date.now();
+ await page.evaluate(()=>{
+   window.__liveChessTest.move('b1c3');
+   window.__liveChessTest.move('g8f6');
+ });
+ await check(page,'fast-white-and-black-reply',s=>s.turn.includes('الأبيض')&&s.moves.includes('4'),19000);
+ timings.push(Date.now()-fastStart);
+ for(const [notation,turn,count] of [
+  ['f1d3','الأسود','4'],
+  ['f8c5','الأبيض','5']
+ ]){
+   const before=Date.now();
+   await page.evaluate(move=>window.__liveChessTest.move(move),notation);
+   await check(page,'continued-'+notation,s=>s.turn.includes(turn)&&s.moves.includes(count),19000);
+   timings.push(Date.now()-before);
+ }
+ const perf=await page.locator('#vision-performance').textContent();
+ console.log('PERFORMANCE '+JSON.stringify({latenciesMs:timings,
+   medianMs:[...timings].sort((a,b)=>a-b)[Math.floor(timings.length/2)],
+   avgMs:Math.round(timings.reduce((a,b)=>a+b,0)/timings.length),
+   backend:perf}));
+ assert(perf.includes('Worker'),'CNN should run in a background Worker, got '+perf);
+ console.log('PASS LIVE CHESS WEBSITE CAMERA MODEL: 8 consecutive plies, including one fast two-ply pair');
 }
 try{await run()}catch(e){console.error('END-TO-END TRAINED MODEL FAILED',e.stack||e);process.exitCode=1}
 finally{try{await browser?.close()}catch{};child.kill('SIGTERM')}

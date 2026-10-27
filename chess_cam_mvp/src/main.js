@@ -132,6 +132,10 @@ function engineEvent(event){
   if((event.kind==='analysis'||event.kind==='done') && event.fen===game.fen()){
     analyzeLines=event.lines;lastDepth=event.depth;lastEngineFen=event.fen;
     renderAnalysis();
+    if(event.kind==='analysis'&&event.stage==='quick')
+      $('analysis-state').textContent='أفضل نقلة أولية — سريع';
+    if(event.kind==='analysis'&&event.stage==='deep')
+      $('analysis-state').textContent='تحليل أعمق';
     if(event.kind==='done')$('analysis-state').textContent=`عمق ${lastDepth}`;
   }
 }
@@ -348,7 +352,7 @@ $('start-camera').addEventListener('click',async()=>{
   const btn=$('start-camera');btn.disabled=true;
   try{
     if(vision.stream){$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;warningNoSync=false;lastReadAt=0;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
-    else await vision.start();
+    else {await vision.start();resetModelTracking();if(modelMode())trainedVision.warmUp();}
   }catch(err){$('vision-message').textContent='تعذر تشغيل الكاميرا: '+String(err.message);}
   finally{btn.disabled=false;setCameraButtons();}
 });
@@ -362,7 +366,7 @@ $('start-screen').addEventListener('click',async()=>{
       hideSuggestion();
       $('vision-message').textContent='تم إيقاف مشاركة نافذة الشطرنج.';
     }else{
-      await vision.startScreen();
+      await vision.startScreen();resetModelTracking();if(modelMode())trainedVision.warmUp();
       autoScan=false;warningNoSync=false;lastReadAt=0;
       hideSuggestion();
       $('vision-message').textContent='تم التقاط نافذة الكمبيوتر. حدّد زوايا الرقعة الظاهرة في الفيديو واحفظ الوضع قبل النقلات.';

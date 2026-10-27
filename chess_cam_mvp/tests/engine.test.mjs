@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {ChessEngine} from '../src/engine.js';
+test('Stockfish emits a quick single-PV move then the full MultiPV response',()=>{
+ const events=[],commands=[],e=new ChessEngine(event=>events.push(event));
+ e.worker={postMessage:s=>commands.push(s)};
+ e.ready=true;
+ const fen='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+ e.analyze(fen);
+ assert(commands.includes('setoption name MultiPV value 1'));
+ assert(commands.some(x=>x.startsWith('go movetime 180')));
+ e.receive('info depth 6 multipv 1 score cp 31 pv e2e4 e7e5');
+ e.receive('bestmove e2e4');
+ assert(commands.includes('setoption name MultiPV value 3'));
+ assert(commands.some(x=>x.startsWith('go movetime 880')));
+ assert(events.some(x=>x.kind==='analysis'&&x.stage==='quick'));
+ e.receive('info depth 10 multipv 1 score cp 25 pv e2e4');
+ e.receive('info depth 10 multipv 2 score cp 15 pv d2d4');
+ e.receive('bestmove e2e4');
+ assert(events.some(x=>x.kind==='done'&&x.lines.length===2));
+});
+test('new position preempts old deep analysis instead of showing a stale move',()=>{
+ const commands=[],events=[],e=new ChessEngine(x=>events.push(x));
+ e.worker={postMessage:x=>commands.push(x)};e.ready=true;
+ e.analyze('fen1');
+ e.analyze('fen2');
+ assert(commands.includes('stop'));
+ e.receive('bestmove e2e4');
+ assert.equal(e.activeFen,'fen2');
+ assert(!events.some(x=>x.kind==='done'&&x.fen==='fen1'));
+});
