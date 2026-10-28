@@ -1,12 +1,12 @@
 // Sparse real-piece detections. Missing ≠ empty: the camera can hide pieces.
+import {tileToBoardIndex} from './physical-orientation.js';
 const piece=p=>p?(p.color==='w'?p.type.toUpperCase():p.type):'1';
 const chars=g=>g.board().flat().map(piece);
-function observedMap(detections,whiteBottom){
+function observedMap(detections,side){
  const seen=new Map();
  for(const d of detections){
   if(!Number.isInteger(d.tile)||d.confidence<.28)continue;
-  const row=Math.floor(d.tile/8),col=d.tile%8;
-  const idx=whiteBottom?(7-row)*8+col:row*8+(7-col);
+  const idx=tileToBoardIndex(d.tile,side);
   const old=seen.get(idx);
   if(!old||old.confidence<d.confidence)seen.set(idx,{type:d.className,confidence:d.confidence});
  }
@@ -30,8 +30,9 @@ function evidenceScore(before,after,seen){
  }
  return {rating,explained,strong};
 }
-export function inferPhysicalMoves(game,detections,{whiteBottom=true,maxTwo=true}={}){
- const seen=observedMap(detections,whiteBottom),before=chars(game);
+export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,maxTwo=true}={}){
+ const side=typeof whiteBottom==='boolean'?(whiteBottom?'w':'b'):orientation;
+ const seen=observedMap(detections,side),before=chars(game);
  const unexpected=[...seen].filter(([i,d])=>before[i]!==d.type&&d.confidence>=.44).length;
  if(unexpected===0)return {kind:'unchanged',count:seen.size,reason:'no-visible-piece-change'};
  const candidates=[],first=game.moves({verbose:true});
