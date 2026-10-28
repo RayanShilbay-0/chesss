@@ -225,8 +225,10 @@ function setCameraButtons(){
     (mlBusy?'النموذج يحلل الصورة…':mlLastResult?
       'CNN | دقة متوسطة: '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% | '+mlScanCount+' فحص':'النموذج المدرب جاهز للتحميل عند حفظ البداية'):
     'الوضع التجريبي القديم: اكتشاف تغيّر المربعات';
-  $('ai-vision-state').classList.toggle('scanning',!!(modelMode()&&monitoring&&!mlBusy));
-  $('vision-performance').textContent=(modelMode()||physicalMode())?
+  $('ai-vision-state').classList.toggle('scanning',!!((modelMode()||physicalMode())&&monitoring&&!mlBusy));
+  $('vision-performance').textContent=physicalMode()?
+    (mlLastResult?'LeYOLO ONNX · '+mlScanCount+' فحوصات | '+boardTracker.state+' · '+boardTracker.inliers+' معالم':'نموذج القطع الحقيقية (LeYOLO) + تعقب OpenCV'):
+    modelMode()?
     (trainedVision.stats.total?'قراءة '+trainedVision.stats.total+' مللي ثانية · ONNX '+
       trainedVision.stats.inference+' مللي ثانية · تخطّي '+trainedVision.skipped+
       ' صور ساكنة · '+trainedVision.backend:
@@ -312,7 +314,7 @@ async function readTrainedCamera({manual=false}={}){
       const highTrust=result.confidence>=settings.confidence&&
         result.margin>=settings.margin;
       $('vision-message').textContent='نقلة '+result.key+' · الثقة '+
-        Math.round(decoded.meanConfidence*100)+'% · '+mlAgreement+'/'+
+        Math.round((decoded?.meanConfidence||0)*100)+'% · '+mlAgreement+'/'+
         settings.agreement+' تأكيد';
       if(highTrust&&mlAgreement>=settings.agreement){
         const seq=result.sequence.map(m=>({from:m.from,to:m.to,promotion:m.promotion||'q'}));
@@ -328,7 +330,7 @@ async function readTrainedCamera({manual=false}={}){
       }else if(!highTrust)mlAgreement=0;
     }else{
       mlCandidate='';mlAgreement=0;
-      const confidence=Math.round(decoded.meanConfidence*100);
+      const confidence=Math.round((decoded?.meanConfidence||0)*100);
       if(result.kind==='unchanged'){
         warningNoSync=false;
         if(manual||mlScanCount%4===0)
@@ -444,7 +446,7 @@ $('baseline').addEventListener('click',()=>{
     const model=vision.saveReference(game);hideSuggestion();
     if(boardTracker.active)boardTracker.reset();
     stableHits=0;stableKey='';lastScanStatus='';
-    autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
+    autoScan=true;warningNoSync=(modelMode()||physicalMode())?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
     unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
     resetModelTracking();if(modelMode())trainedVision.warmUp();else if(physicalMode())physicalVision.warmUp();
     setCameraButtons();
