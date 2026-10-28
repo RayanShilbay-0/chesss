@@ -34,3 +34,23 @@ export function physicalOrientation(detections){
   const side=Math.abs(dx)>Math.abs(dy)*1.12?(dx<0?'l':'r'):(dy>0?'w':'b');
   return {side,verified:true,margin,white:sums.P.n,black:sums.p.n};
 }
+// Orientation from the VERIFIED game position: for each camera direction,
+// how well do the observed pieces agree with the known occupancy/colours?
+// Colour centroids (physicalOrientation) flip once pieces leave their home
+// ranks mid-game; the verified FEN does not. Returns null side if unclear.
+export function orientationFromPosition(detections,position,{minMargin=1.5}={}){
+  const scores=CAMERA_DIRECTIONS.map(side=>{
+    let s=0;
+    for(const d of detections){
+      if(!Number.isInteger(d.tile)||d.confidence<.3)continue;
+      const t=position[tileToBoardIndex(d.tile,side)],cls=d.className;
+      if(t==='1')s-=d.confidence;
+      else if(t===cls)s+=d.confidence;
+      else if((t===t.toUpperCase())===(cls===cls.toUpperCase()))s+=.6*d.confidence;
+      else s-=.5*d.confidence;
+    }
+    return {side,score:s};
+  }).sort((a,b)=>b.score-a.score);
+  const margin=scores[0].score-scores[1].score;
+  return {side:margin>=minMargin?scores[0].side:null,verified:margin>=minMargin,margin,scores};
+}

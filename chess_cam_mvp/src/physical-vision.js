@@ -1,14 +1,17 @@
 import {inferMovesFromModel,decodedPosition,chooseVisualOrientation} from './model-moves.js';
 import {decodeYolo,mapPhysicalDetections} from './physical-geometry.js';
+import {detectBoardFromCorners,grayFromRgba} from './board-lattice.js';
+import {applyH} from './homography.js';
 import {cropPhysicalBoard} from './physical-crop.js';
 import {scoreChessboardQuad,expandQuadToPieces} from './physical-calibration.js';
-import {inferPhysicalMoves} from './physical-evidence.js';
-import {physicalOrientation} from './physical-orientation.js';
+import {inferPhysicalMoves,SquareEvidence,observedSquares,OcclusionGuard,OrientationLock} from './physical-evidence.js';
+import {physicalOrientation,orientationFromPosition,tileToBoardIndex} from './physical-orientation.js';
+const boardChars=game=>game.board().flat().map(p=>p?(p.color==='w'?p.type.toUpperCase():p.type):'1');
 export class PhysicalChessVision{
   constructor(camera){
     this.camera=camera;this.worker=null;this.initPromise=null;
     this.pending=new Map();this.request=0;this.last=null;
-    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
+    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.evidence=new SquareEvidence();this.occlusion=new OcclusionGuard();this.lock=new OrientationLock();this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
   }
   async setup(){
     if(this.initPromise)return this.initPromise;
@@ -36,13 +39,26 @@ export class PhysicalChessVision{
   }
   warmUp(){void this.setup().catch(()=>{});}
   reset(){
+    this.evidence.reset('');this.occlusion.reset();this.lock.reset();
     this.filtered=null;this.lastBoard=null;this.last=null;this.lastTime=0;this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
   }
   close(){this.worker?.terminate();this.worker=null;this.initPromise=null;
     for(const p of this.pending.values())p.reject(Error('Camera stopped'));
     this.pending.clear();
   }
-  async detectBoardCorners(){
+  async inferBoxes(rgba,width,height,left=0,top=0){
+    const id=++this.request;
+    const future=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject}));
+    this.worker.postMessage({type:'infer',id,rgba,width,height},[rgba.buffer]);
+    const out=await future;
+    return {ms:out.ms,boxes:decodeYolo(out.raw,out.shape,{confidence:.28}).map(d=>({...d,
+      cx:(d.cx-out.offX)/out.scale+left,cy:(d.cy-out.offY)/out.scale+top,
+      w:d.w/out.scale,h:d.h/out.scale}))};
+  }
+  // Board acquisition: x-corner lattice + piece support + verified position.
+  // `game` (chess.js) supplies the verified position, which decides where
+  // the board lies along the lattice and which way it faces.
+  async detectBoardCorners(game=null){
     if(!this.camera.stream)throw Error('شغّل كاميرا الرقعة الحقيقية أولًا');
     await this.setup();
     const image=this.camera.frame(),id=++this.request;
@@ -52,21 +68,28 @@ export class PhysicalChessVision{
       modelUrl:(import.meta.env.BASE_URL||'/')+'models/chesscam-physical-corners.onnx',
       rgba,width:image.width,height:image.height},[rgba.buffer]);
     const data=await future;
+    const points=this.cornerPoints(data,image.width,image.height);
+    const pieces=(await this.inferBoxes(new Uint8ClampedArray(image.data),image.width,image.height)).boxes;
+    const position=game?boardChars(game):null;
+    const lattice=detectBoardFromCorners(points,{gray:grayFromRgba(image.data,image.width,image.height),
+      width:image.width,height:image.height,pieces,position});
+    if(lattice.ok&&!(lattice.quality.ambiguous&&!position)){
+      let side=null;
+      if(position){
+        const H=lattice.H,point=(u,v)=>{const q=applyH(H,u,v);return {x:q.x,y:q.y};};
+        const mapped=mapPhysicalDetections(pieces,point);
+        const vote=orientationFromPosition(mapped.detections,position);
+        side=vote.side;
+        if(side){this.lock.reset();this.lock.update(vote);this.orientation=side;}
+      }
+      return {corners:lattice.corners,H:lattice.H,points:points.length,side,
+        quality:{...lattice.quality,aligned:lattice.quality.inliers,valid:true,method:'lattice'}};
+    }
+    // Fallback: previous extreme-point heuristic, still validated by pieces.
     const found=this.decodeCorners(data,image.width,image.height);
-    if(!found)throw Error('نموذج نقاط الشبكة لم يعثر على 7×7 تقاطعات كافية. قرّب الرقعة كاملة.');
-    // A perfect-looking green polygon may cover only A-E instead of A-H!
-    // Independently validate the grid against detected REAL piece positions.
-    const crop=cropPhysicalBoard(image,found.corners,{margin:.85,upper:.85});
-    const extraId=++this.request;
-    const extra=new Promise((resolve,reject)=>this.pending.set(extraId,{resolve,reject}));
-    this.worker.postMessage({type:'infer',id:extraId,rgba:crop.rgba,
-      width:crop.width,height:crop.height},[crop.rgba.buffer]);
-    const detection=await extra;
-    const pieceBoxes=decodeYolo(detection.raw,detection.shape,{confidence:.28}).map(d=>({
-      x:(d.cx-detection.offX)/detection.scale+crop.left,
-      y:(d.cy+d.h/2-d.w/3-detection.offY)/detection.scale+crop.top,
-      confidence:d.confidence
-    }));
+    if(!found)throw Error(lattice.ok?'موضع الرقعة غير محسوم من هذه الزاوية. أظهر حافة الرقعة أو كل الأعمدة A–H.':
+      'نموذج نقاط الشبكة لم يعثر على 7×7 تقاطعات كافية. قرّب الرقعة كاملة.');
+    const pieceBoxes=pieces.map(d=>({x:d.cx,y:d.cy+d.h/2-d.w/3,confidence:d.confidence}));
     let corners=found.corners;
     let quality=scoreChessboardQuad(corners,found.rawPoints,pieceBoxes);
     if(!quality.valid){
@@ -80,7 +103,21 @@ export class PhysicalChessVision{
       throw Error('تم رفض تحديد رقعة ناقصة أو غير صحيحة ('+
         quality.aligned+' تقاطع مطابق؛ '+Math.round((quality.coverage??0)*100)+
         '% من القطع داخلها). صوّر جميع الأعمدة A–H أو حدد الزوايا الأربع يدويًا.');
-    return {...found,corners,quality};
+    return {...found,corners,quality:{...quality,method:'legacy-extremes'}};
+  }
+  cornerPoints(data,width,height){
+    const {raw,shape,scale,offX,offY}=data;
+    if(shape?.[0]!==1||shape?.[1]!==5)return [];
+    const n=shape[2],points=[];
+    for(let i=0;i<n;i++){
+      const confidence=raw[4*n+i];
+      if(confidence<.35)continue;
+      const x=(raw[i]-offX)/scale,y=(raw[n+i]-offY)/scale;
+      if(x<-20||x>width+20||y<-20||y>height+20)continue;
+      if(points.some(p=>Math.hypot(p.x-x,p.y-y)<8))continue;
+      points.push({x,y,confidence});
+    }
+    return points;
   }
   decodeCorners(data,width,height){
     const {raw,shape,scale,offX,offY}=data;
@@ -175,17 +212,35 @@ export class PhysicalChessVision{
     }
     this.filtered=mapped.probabilities;
     const manual=document.getElementById('camera-facing')?.value||'auto';
-    const proposal=physicalOrientation(mapped.detections);
-    if(manual==='auto'&&proposal.verified){
-      if(this.pendingOrientation===proposal.side)this.orientationHits++;
-      else{this.pendingOrientation=proposal.side;this.orientationHits=1;}
-      if(!this.orientation||this.orientationHits>=3)this.orientation=proposal.side;
-    }
+    // Vote against the VERIFIED position (stable through the whole game);
+    // colour centroids are only a fallback before any position is known.
+    const byPosition=orientationFromPosition(mapped.detections,boardChars(game));
+    const proposal=byPosition.verified?byPosition:physicalOrientation(mapped.detections);
+    if(manual==='auto')this.orientation=this.lock.update(proposal);
     const side=manual==='auto'?(this.orientation||this.camera.side):manual;
     if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay?.();}
     // Real LeYOLO is sparse. Never treat an invisible/occluded piece as an
     // empty square; evaluate only observed pieces against legal game moves.
-    const result=inferPhysicalMoves(game,mapped.detections,{orientation:side});
+    // Squares whose centre is inside this frame (with margin) are 'visible'.
+    const chars=boardChars(game),visible=new Set();
+    for(let tile=0;tile<64;tile++){
+      const r=7-Math.floor(tile/8),c=tile%8,p=point((c+.5)/8,(r+.5)/8);
+      if(p.x>frame.width*.03&&p.y>frame.height*.03&&p.x<frame.width*.97&&p.y<frame.height*.97)
+        visible.add(tileToBoardIndex(tile,side));
+    }
+    // Far fewer pieces than recent scans of this view: likely a hand or arm
+    // over the board. Keep observations, but add no 'vacated' evidence.
+    const occluded=this.occlusion.update(mapped.count).occluded;
+    const observed=observedSquares(mapped.detections,side);
+    this.evidence.add(game.fen(),observed,occluded?new Set():visible);
+    const snap=this.evidence.snapshot();
+    const instant=inferPhysicalMoves(game,mapped.detections,{orientation:side});
+    const temporal=inferPhysicalMoves(game,[],{observed:snap.seen,empty:snap.empty});
+    // Prefer the temporal reading; a single frame may only confirm the same.
+    const result=occluded&&temporal.kind==='move'?{kind:'uncertain',reason:'occluded',best:temporal}:
+      temporal.kind==='move'||instant.kind!=='move'?temporal:
+      {kind:'uncertain',reason:'single-frame-only',best:instant};
+    result.occluded=occluded;result.visibleSquares=visible.size;
     // FEN reconstruction is disabled for real pieces: a missing box does
     // NOT mean an empty square (unlike the digital Fenshot model).
     const decoded=null;

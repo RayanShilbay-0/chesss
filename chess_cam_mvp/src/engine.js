@@ -5,7 +5,11 @@ export class ChessEngine {
     this.onUpdate=onUpdate;
     this.worker=null;this.ready=false;this.activeFen=null;this.queuedFen=null;
     this.lines=new Map();this.depth=0;this.lastFen=null;
-    this.mode='full';this.stage=null;this.startTime=0;this.startupTimer=null;
+    // Full Stockfish downloads ~94 MB of NNUE/WASM; on devices reporting
+    // <=2 GB RAM start with Lite directly instead of risking a tab reload.
+    const memory=globalThis.navigator?.deviceMemory;
+    this.mode=memory&&memory<=2?'lite':'full';this.lowMemory=!!(memory&&memory<=2);
+    this.stage=null;this.startTime=0;this.startupTimer=null;
   }
   init(){
     try{

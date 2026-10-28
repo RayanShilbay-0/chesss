@@ -38,7 +38,14 @@ async function main(){
  assert.equal(flow.second.state,'tracking','must track a moving board');
  assert.equal(flow.third.state,'tracking','must stay tracked with camera translation');
  assert(flow.corners[0].x>159,'corner must follow camera movement, got '+flow.corners[0].x);
- console.log('PASS PHYSICAL ONNX + MOVING CAMERA OPENCV RANSAC');
+ const memory=await page.evaluate(()=>window.__testBoardMemory());
+ console.log('BOARD MEMORY '+JSON.stringify(memory));
+ assert(memory.log.every(s=>s==='tracking'),'board memory must track a moving board');
+ assert(memory.trackedError<3,'tracked corners must stay within 3 px, got '+memory.trackedError);
+ assert.equal(memory.lost,'lost','a blank frame must invalidate the pose');
+ assert(memory.relocalizedAfterFrames,'must relocalize from stored keyframes after loss');
+ assert(memory.relocError<4,'relocalized corners within 4 px, got '+memory.relocError);
+ console.log('PASS PHYSICAL ONNX + MOVING CAMERA OPENCV RANSAC + BOARD MEMORY RELOCALIZATION');
 }
 try{await main()}catch(e){console.error('PHYSICAL TEST FAILED',e.stack||e);process.exitCode=1}
 finally{try{await browser?.close()}catch{};proc.kill('SIGTERM');}
