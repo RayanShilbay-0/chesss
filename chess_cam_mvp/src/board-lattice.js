@@ -66,6 +66,7 @@ export function fitLatticeHomography(points,{tolerance=.2,maxSeeds=60}={}){
     }
   }
   if(!best||best.count<6)return null;
+  best=reduceBasis(best,pts,tolerance);
   // Iterative least-squares refinement on all lattice members.
   for(let k=0;k<4;k++){
     const H=refit(best.members);
@@ -75,6 +76,33 @@ export function fitLatticeHomography(points,{tolerance=.2,maxSeeds=60}={}){
     best={H,...s};
   }
   return best;
+}
+// Gauss lattice reduction at the members' centroid: replace a sheared basis
+// (e.g. one square + one diagonal) by the shortest pair of grid vectors.
+// Any unimodular basis explains the same detections equally well, so the
+// RANSAC score alone cannot tell them apart on real, noisy frames.
+export function reduceBasis(fit,pts,tolerance){
+  const n=fit.members.length;
+  const ci=fit.members.reduce((s,m)=>s+m.i,0)/n,cj=fit.members.reduce((s,m)=>s+m.j,0)/n;
+  const o=applyH(fit.H,ci,cj),pi=applyH(fit.H,ci+1,cj),pj=applyH(fit.H,ci,cj+1);
+  let a={x:pi.x-o.x,y:pi.y-o.y},b={x:pj.x-o.x,y:pj.y-o.y};
+  // Track M (2x2 integer, columns = new basis in old lattice coordinates).
+  let M=[1,0,0,1];
+  const len=v=>v.x*v.x+v.y*v.y;
+  for(let k=0;k<12;k++){
+    if(len(a)>len(b)){[a,b]=[b,a];M=[M[1],M[0],M[3],M[2]];}
+    const mu=Math.round((a.x*b.x+a.y*b.y)/len(a));
+    if(!mu)break;
+    b={x:b.x-mu*a.x,y:b.y-mu*a.y};
+    M=[M[0],M[1]-mu*M[0],M[2],M[3]-mu*M[2]];
+  }
+  if(M[0]===1&&M[1]===0&&M[2]===0&&M[3]===1)return fit;
+  // Keep a right-handed basis so corner ordering logic is unchanged.
+  if(M[0]*M[3]-M[1]*M[2]<0)M=[M[0],-M[1],M[2],-M[3]];
+  const Hm=[M[0],M[1],0,M[2],M[3],0,0,0,1];
+  const H=multiplyH(fit.H,Hm);
+  const s=scoreLattice(H,pts,tolerance);
+  return s.count>=fit.count*.9?{H,...s,shape:fit.shape}:fit;
 }
 // Sample an image intensity around a board-plane location; null if outside.
 function cellValue(H,gray,width,height,c,r){

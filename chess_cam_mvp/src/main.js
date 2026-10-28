@@ -50,7 +50,7 @@ async function recoverPhysicalCorners({manual=false}={}){
   physicalRecovering=true;lastPhysicalRecover=Date.now();
   if(manual)$('tracker-state').textContent='البحث التلقائي عن مربعات الرقعة الحقيقية…';
   try{
-    const found=await physicalVision.detectBoardCorners();
+    const found=await physicalVision.detectBoardCorners(game);
     if(!found)return false;
     if(!manual&&vision.corners.length===4&&!poseIsValid(vision.corners,found.corners,
       vision.canvas.width,vision.canvas.height)&&found.quality?.aligned<30)return false;
