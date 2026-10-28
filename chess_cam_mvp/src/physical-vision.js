@@ -4,7 +4,7 @@ export class PhysicalChessVision{
   constructor(camera){
     this.camera=camera;this.worker=null;this.initPromise=null;
     this.pending=new Map();this.request=0;this.last=null;
-    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';
+    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.orientation=null;
   }
   async setup(){
     if(this.initPromise)return this.initPromise;
@@ -32,7 +32,7 @@ export class PhysicalChessVision{
   }
   warmUp(){void this.setup().catch(()=>{});}
   reset(){
-    this.filtered=null;this.lastBoard=null;this.last=null;this.lastTime=0;
+    this.filtered=null;this.lastBoard=null;this.last=null;this.lastTime=0;this.orientation=null;
   }
   close(){this.worker?.terminate();this.worker=null;this.initPromise=null;
     for(const p of this.pending.values())p.reject(Error('Camera stopped'));
@@ -133,8 +133,10 @@ export class PhysicalChessVision{
     }
     this.filtered=mapped.probabilities;
     const manual=document.getElementById('camera-facing')?.value||'auto';
-    const inferred=chooseVisualOrientation(game,mapped.probabilities,this.camera.side);
-    const side=manual==='auto'?inferred.side:manual;
+    const inferred=chooseVisualOrientation(game,mapped.probabilities,this.orientation||this.camera.side);
+    if(manual==='auto'&&(!this.orientation||inferred.verified&&inferred.margin>14))
+      this.orientation=inferred.side;
+    const side=manual==='auto'?(this.orientation||this.camera.side):manual;
     if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay();}
     const whiteBottom=side==='w';
     const result=inferMovesFromModel(game,mapped.probabilities,{whiteBottom});

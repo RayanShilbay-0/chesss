@@ -26,3 +26,24 @@ test('LeYOLO 16-channel ONNX outputs decode class and bbox',()=>{
  assert.equal(boxes[0].className,'p');
  assert(boxes[0].confidence>.8);
 });
+
+import { PhysicalChessVision } from '../src/physical-vision.js';
+test('LeYOLO xcorner classifier recovers outer board corners from 7x7 intersections',()=>{
+ const n=49,raw=new Float32Array(5*n);
+ let i=0;
+ for(let row=1;row<=7;row++)for(let col=1;col<=7;col++){
+   raw[i]=100+col*60;
+   raw[n+i]=40+row*60;
+   raw[2*n+i]=8;raw[3*n+i]=8;raw[4*n+i]=.95;
+   i++;
+ }
+ const detector=Object.create(PhysicalChessVision.prototype);
+ const found=detector.decodeCorners({raw,shape:[1,5,n],scale:1,offX:0,offY:0,ms:12},800,600);
+ assert(found, 'the board should be found');
+ assert.equal(found.points,49);
+ const expected=[[100,40],[580,40],[580,520],[100,520]];
+ for(let j=0;j<4;j++){
+   assert(Math.abs(found.corners[j].x-expected[j][0])<1);
+   assert(Math.abs(found.corners[j].y-expected[j][1])<1);
+ }
+});
