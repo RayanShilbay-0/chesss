@@ -5,6 +5,7 @@ import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
 import { physicalCandidateDecision } from './physical-acceptance.js';
+import { keepDigitalCandidate } from './digital-confirmation.js';
 import { MovingBoardTracker,poseIsValid,loadOpenCV } from './moving-board-tracker.js';
 import { CameraBoardMemory } from './board-memory.js';
 import { PhysicalChessVision } from './physical-vision.js';
@@ -112,13 +113,13 @@ function trackCameraPose(){
     vision.drawOverlay();
   }catch(e){vision.poseValid=false;$('tracker-state').textContent='مشكلة تتبع: '+String(e.message);}
 }
-let mlBusy=false,mlLastAt=0,mlCandidate='',mlAgreement=0,mlScanCount=0;
+let mlBusy=false,mlLastAt=0,mlCandidate='',mlAgreement=0,mlScanCount=0,mlGapFrames=0;
 let frameVersion=0;
 const profile=()=>profileSettings($('scan-speed').value);
 let mlLastResult=null,mlLastPrediction=null;
 const modelMode=()=>$('vision-mode').value==='model';
 function resetModelTracking(){
-  frameVersion++;mlCandidate='';mlAgreement=0;mlLastResult=null;mlLastPrediction=null;mlLastAt=0;
+  frameVersion++;mlCandidate='';mlAgreement=0;mlGapFrames=0;mlLastResult=null;mlLastPrediction=null;mlLastAt=0;
   trainedVision.resetTracking();physicalVision.reset();
 }
 
@@ -404,6 +405,7 @@ async function readTrainedCamera({manual=false}={}){
         (stats?.inference??'—')+' مللي ثانية';
     }
     if(result.kind==='move'){
+      mlGapFrames=0;
       if(result.key===mlCandidate)mlAgreement++;else{mlCandidate=result.key;mlAgreement=1;}
       const settings=profile();
       const physDecision=physicalMode()?
@@ -434,7 +436,14 @@ async function readTrainedCamera({manual=false}={}){
         (physDecision.reason!=='needs-observations'&&physDecision.reason!=='needs-confirmation')))
         mlAgreement=0;
     }else{
-      mlCandidate='';mlAgreement=0;
+      if(modelMode()&&mlCandidate&&
+         keepDigitalCandidate(result.kind,decoded,game.fen(),mlGapFrames)){
+        mlGapFrames++;
+        $('vision-message').textContent='القراءة غير حاسمة مؤقتًا · احتفظنا بالنقلة '+
+          mlCandidate+' بانتظار صورة تأكيد واضحة.';
+        return;
+      }
+      mlCandidate='';mlAgreement=0;mlGapFrames=0;
       const confidence=Math.round((decoded?.meanConfidence||0)*100);
       if(result.kind==='unchanged'){
         warningNoSync=false;
