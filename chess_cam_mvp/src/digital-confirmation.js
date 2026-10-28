@@ -7,3 +7,13 @@ export function keepDigitalCandidate(kind,decoded,fen,missing,{maxMisses=3}={}){
    return false;
  return true;
 }
+
+export function digitalMoveVote(result,hits,settings){
+ const qualified=result?.kind==='move'&&
+   Number.isFinite(result.confidence)&&result.confidence>=settings.confidence&&
+   Number.isFinite(result.margin)&&result.margin>=settings.margin;
+ // A first high-confidence vote is VALID evidence even when we still
+ // need the second one. Never reset that vote just because hits<agreement.
+ return {qualified,accept:qualified&&hits>=settings.agreement,
+   stillWaiting:qualified&&hits<settings.agreement};
+}

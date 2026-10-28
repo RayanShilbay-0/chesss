@@ -5,7 +5,7 @@ import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
 import { physicalCandidateDecision } from './physical-acceptance.js';
-import { keepDigitalCandidate } from './digital-confirmation.js';
+import { keepDigitalCandidate,digitalMoveVote } from './digital-confirmation.js';
 import { MovingBoardTracker,poseIsValid,loadOpenCV } from './moving-board-tracker.js';
 import { CameraBoardMemory } from './board-memory.js';
 import { PhysicalChessVision } from './physical-vision.js';
@@ -411,10 +411,9 @@ async function readTrainedCamera({manual=false}={}){
       const physDecision=physicalMode()?
         physicalCandidateDecision(result,physicalVision.evidence.scans,
           $('scan-speed').value,mlAgreement):null;
-      const digitalEvidenceOK=result.confidence>=settings.confidence&&
-        result.margin>=settings.margin;
-      const highTrust=physicalMode()?physDecision.accept:
-        digitalEvidenceOK&&mlAgreement>=settings.agreement;
+      const digitalVote=digitalMoveVote(result,mlAgreement,settings);
+      const digitalEvidenceOK=digitalVote.qualified;
+      const highTrust=physicalMode()?physDecision.accept:digitalVote.accept;
       const needed=physicalMode()?physDecision.policy.agreement:settings.agreement;
       $('vision-message').textContent='نقلة '+result.key+' · الثقة '+
         Math.round((physicalMode()?result.confidence:(decoded?.meanConfidence||0))*100)+'% · '+mlAgreement+'/'+
