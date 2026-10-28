@@ -411,9 +411,10 @@ async function readTrainedCamera({manual=false}={}){
       const physDecision=physicalMode()?
         physicalCandidateDecision(result,physicalVision.evidence.scans,
           $('scan-speed').value,mlAgreement):null;
+      const digitalEvidenceOK=result.confidence>=settings.confidence&&
+        result.margin>=settings.margin;
       const highTrust=physicalMode()?physDecision.accept:
-        result.confidence>=settings.confidence&&result.margin>=settings.margin&&
-        mlAgreement>=settings.agreement;
+        digitalEvidenceOK&&mlAgreement>=settings.agreement;
       const needed=physicalMode()?physDecision.policy.agreement:settings.agreement;
       $('vision-message').textContent='نقلة '+result.key+' · الثقة '+
         Math.round((physicalMode()?result.confidence:(decoded?.meanConfidence||0))*100)+'% · '+mlAgreement+'/'+
@@ -432,8 +433,9 @@ async function readTrainedCamera({manual=false}={}){
           $('suggestion-desc').textContent='راجع النقلات قبل الاعتماد على التحليل';
           $('vision-suggestion').hidden=false;
         }
-      }else if(!highTrust&&(!physicalMode()||
-        (physDecision.reason!=='needs-observations'&&physDecision.reason!=='needs-confirmation')))
+      }else if(!highTrust&&(physicalMode()?
+        (physDecision.reason!=='needs-observations'&&physDecision.reason!=='needs-confirmation'):
+        !digitalEvidenceOK))
         mlAgreement=0;
     }else{
       if(modelMode()&&mlCandidate&&
