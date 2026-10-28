@@ -52,3 +52,18 @@ test('physical piece evidence identifies e4 when white is on camera left',()=>{
   assert.equal(result.kind,'move',JSON.stringify(result));
   assert.equal(result.key,'e2e4');
 });
+
+test('disagreed LeYOLO noise does not trigger expensive two-move search',()=>{
+ const game=new Chess();
+ const dets=[det('e4','P'),det('c4','P'),det('d3','P')];
+ const r=inferPhysicalMoves(game,dets);
+ assert.equal(r.twoPlyConsidered,0);
+});
+test('two fast opposing-colour moves prune unhelpful first moves',()=>{
+ const game=new Chess();
+ const r=inferPhysicalMoves(game,[det('e4','P'),det('e6','p'),det('a2','P')]);
+ assert.equal(r.kind,'move',JSON.stringify(r));
+ assert.equal(r.key,'e2e4 e7e6');
+ assert(r.twoPlyConsidered>0&&r.twoPlyConsidered<150,
+   'expected pruned search, got '+r.twoPlyConsidered);
+});

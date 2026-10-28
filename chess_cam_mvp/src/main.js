@@ -4,6 +4,7 @@ import { CameraVision } from './vision.js';
 import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
+import { physicalCandidateDecision } from './physical-acceptance.js';
 import { MovingBoardTracker,poseIsValid,loadOpenCV } from './moving-board-tracker.js';
 import { CameraBoardMemory } from './board-memory.js';
 import { PhysicalChessVision } from './physical-vision.js';
@@ -93,13 +94,20 @@ function trackCameraPose(){
     const result=boardTracker.observe(vision.frame());
     vision.poseValid=result.state==='tracking';
     if(result.state==='lost'){
-      if(physicalMode()&&boardTracker.retries>=3)void recoverPhysicalCorners();
+      // First try the inexpensive ORB relocalizer. Use both neural
+      // detectors only if it has failed for several tracking frames.
+      if(physicalMode()&&boardTracker.retries>=7)void recoverPhysicalCorners();
       $('tracker-state').textContent='فقدت معالم الرقعة ('+result.inliers+' نقاط). حافظ عليها داخل الكاميرا؛ أوقفنا السهم لتجنب موضع خاطئ.';
     }else if(result.state==='tracking'){
       $('tracker-state').textContent='تتبّع رقعة متحركة · '+result.inliers+' معالم متطابقة'+
         (result.visible!==undefined?' · '+Math.round(result.visible*100)+'% من الرقعة ظاهر · '+result.keyframes+' لقطات مرجعية':'');
-      // Periodic independent verification of the mapped square offset.
-      if(physicalMode()&&Date.now()-lastPhysicalRecover>4000)void recoverPhysicalCorners();
+      // Frequent *full* x-corner + piece detection runs in the same ONNX
+      // worker as move recognition. On an iPhone this starves move frames.
+      // Reverify only if the mapped pose becomes genuinely questionable.
+      const degraded=result.visible!==undefined&&result.visible<.23 ||
+        result.inliers<16 || (result.rms!==undefined&&result.rms>2.8);
+      if(physicalMode()&&degraded&&Date.now()-lastPhysicalRecover>10000)
+        void recoverPhysicalCorners();
     }else $('tracker-state').textContent='معايرة متتبّع الرقعة…';
     vision.drawOverlay();
   }catch(e){vision.poseValid=false;$('tracker-state').textContent='مشكلة تتبع: '+String(e.message);}
@@ -168,6 +176,7 @@ function handleSquare(square){
   }else{ selected=null;renderBoard(); }
 }
 function resetAnalysis(){
+  lastRenderedBest=null;
   vision.setSuggestedMove(null);
   analyzeLines=[];lastDepth=0;lastEngineFen=null;
   $('eval-number').textContent='—';$('eval-side').textContent='—';$('best-move').textContent='—';
@@ -241,6 +250,7 @@ function recordArrowLatency(){
   $('engine-health').textContent='من تأكيد النقلة إلى السهم: '+ms+' مللي ثانية (الوسيط '+
     sorted[sorted.length>>1]+' · '+sorted.length+' قياس)';
 }
+let lastRenderedBest=null;
 function renderAnalysis(){
   const valid=analyzeLines.filter(x=>x.move && (x.cp!==null||x.mate!==null));
   if(!valid.length)return;
@@ -261,8 +271,13 @@ function renderAnalysis(){
     const score=document.createElement('span');score.textContent=line.mate!==null?`مات ${line.mate}`:`${(line.cp/100).toFixed(2)}`;
     row.append(name,score);$('top-lines').appendChild(row);
   });
-  renderBoard();
-  vision.setSuggestedMove(best.move);recordArrowLatency();
+  // Reconstructing 64 DOM buttons on EVERY Stockfish depth update
+  // competed with the iPhone camera and made the UI/vision sluggish.
+  if(lastRenderedBest!==best.move){
+    lastRenderedBest=best.move;
+    renderBoard();vision.setSuggestedMove(best.move);
+  }
+  recordArrowLatency();
 }
 function setCameraButtons(){
   const on=!!vision.stream,ready=vision.corners.length===4,ref=!!vision.reference;
@@ -292,7 +307,10 @@ function setCameraButtons(){
     'الوضع التقليدي القديم';
   $('ai-vision-state').classList.toggle('scanning',!!((modelMode()||physicalMode())&&monitoring&&!mlBusy));
   $('vision-performance').textContent=physicalMode()?
-    (mlLastResult?'LeYOLO ONNX · '+mlScanCount+' فحوصات | '+boardTracker.state+' · '+boardTracker.inliers+' معالم':'نموذج القطع الحقيقية (LeYOLO) + تعقب OpenCV'):
+    (mlLastResult?'LeYOLO · '+mlScanCount+' فحوصات · '+
+      (physicalVision.last?.stats?.inference??'—')+'ms استدلال · '+
+      boardTracker.state+' · '+boardTracker.inliers+' معالم':
+      'LeYOLO + تعقب OpenCV · يتم إعداد النموذج'):
     modelMode()?
     (trainedVision.stats.total?'قراءة '+trainedVision.stats.total+' مللي ثانية · ONNX '+
       trainedVision.stats.inference+' مللي ثانية · تخطّي '+trainedVision.skipped+
@@ -388,12 +406,20 @@ async function readTrainedCamera({manual=false}={}){
     if(result.kind==='move'){
       if(result.key===mlCandidate)mlAgreement++;else{mlCandidate=result.key;mlAgreement=1;}
       const settings=profile();
-      const highTrust=result.confidence>=settings.confidence&&
-        result.margin>=settings.margin;
+      const physDecision=physicalMode()?
+        physicalCandidateDecision(result,physicalVision.evidence.scans,
+          $('scan-speed').value,mlAgreement):null;
+      const highTrust=physicalMode()?physDecision.accept:
+        result.confidence>=settings.confidence&&result.margin>=settings.margin&&
+        mlAgreement>=settings.agreement;
+      const needed=physicalMode()?physDecision.policy.agreement:settings.agreement;
       $('vision-message').textContent='نقلة '+result.key+' · الثقة '+
         Math.round((physicalMode()?result.confidence:(decoded?.meanConfidence||0))*100)+'% · '+mlAgreement+'/'+
-        settings.agreement+' تأكيد';
-      if(highTrust&&mlAgreement>=settings.agreement){
+        needed+' تأكيد'+(physicalMode()&&!highTrust?' · '+({
+          'needs-observations':'تجميع دليل زمني','low-confidence':'ثقة منخفضة',
+          'ambiguous':'نقلات متشابهة','needs-confirmation':'تأكيد ثانٍ'
+        }[physDecision.reason]||'انتظار'):'');
+      if(highTrust){
         const seq=result.sequence.map(m=>({from:m.from,to:m.to,promotion:m.promotion||'q'}));
         mlCandidate='';mlAgreement=0;
         if($('auto-accept').checked){
@@ -404,7 +430,9 @@ async function readTrainedCamera({manual=false}={}){
           $('suggestion-desc').textContent='راجع النقلات قبل الاعتماد على التحليل';
           $('vision-suggestion').hidden=false;
         }
-      }else if(!highTrust)mlAgreement=0;
+      }else if(!highTrust&&(!physicalMode()||
+        (physDecision.reason!=='needs-observations'&&physDecision.reason!=='needs-confirmation')))
+        mlAgreement=0;
     }else{
       mlCandidate='';mlAgreement=0;
       const confidence=Math.round((decoded?.meanConfidence||0)*100);
@@ -714,7 +742,8 @@ autoInterval=setInterval(()=>{
 // OpenCV work under ~40% of the main thread so video and UI stay smooth.
 let trackingCost=40;
 trackingLoop=setInterval(()=>{
-  if(Date.now()-trackingLast>Math.max(50,trackingCost*2.5)&&trackingWanted()&&!trackingPreparing){
+  if(Date.now()-trackingLast>Math.max(100,trackingCost*3.1,mlBusy?135:0)&&
+      trackingWanted()&&!trackingPreparing){
     trackingLast=Date.now();
     const t=performance.now();trackCameraPose();
     trackingCost=trackingCost*.8+(performance.now()-t)*.2;

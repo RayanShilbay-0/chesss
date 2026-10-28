@@ -78,8 +78,9 @@ export function observedSquares(detections,side){return observedMap(detections,s
 export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,maxTwo=true,observed=null,empty=new Set()}={}){
  const side=typeof whiteBottom==='boolean'?(whiteBottom?'w':'b'):orientation;
  const seen=observed||observedMap(detections,side),before=chars(game);
- const unexpected=[...seen].filter(([i,d])=>before[i]!==d.type&&d.confidence>=.44).length;
- if(unexpected===0)return {kind:'unchanged',count:seen.size,reason:'no-visible-piece-change'};
+ const newPieces=[...seen].filter(([i,d])=>before[i]!==d.type&&d.confidence>=.44);
+ const unexpected=newPieces.length;
+ if(unexpected===0)return {kind:'unchanged',count:seen.size,reason:'no-visible-piece-change',twoPlyConsidered:0};
  const candidates=[],first=game.moves({verbose:true});
  const consider=(seq,penalty)=>{
   const e=evidenceScore(before,chars(game),seen,empty);
@@ -90,11 +91,23 @@ export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,
  };
  for(const m of first){game.move(m);consider([m],.15);game.undo();}
  candidates.sort((a,b)=>b.rating-a.rating);
- if(maxTwo&&unexpected>=2&&(candidates[0]?.explained||0)<unexpected){
+ // Two legal moves are needed only if BOTH colours gained a new visible
+ // piece (a player move followed by a fast bot response). A single move with
+ // noisy LeYOLO boxes must never trigger ~1,000 legal-board evaluations on
+ // the main browser thread.
+ const colours=new Set(newPieces.map(([,d])=>d.type===d.type.toUpperCase()?'w':'b'));
+ let twoPlyConsidered=0;
+ if(maxTwo&&unexpected>=2&&colours.size===2&&
+    (candidates[0]?.explained||0)<unexpected){
   for(const m of first){
    game.move(m);
-   if(!game.isGameOver())for(const n of game.moves({verbose:true})){
-    game.move(n);consider([m,n],.65);game.undo();
+   const interim=chars(game);
+   // A first move has to explain an observed NEW destination; otherwise
+   // it cannot be the first half of a two-ply visual sequence.
+   if(newPieces.some(([i,d])=>interim[i]===d.type)){
+    if(!game.isGameOver())for(const n of game.moves({verbose:true})){
+      game.move(n);consider([m,n],.65);twoPlyConsidered++;game.undo();
+    }
    }
    game.undo();
   }
@@ -102,12 +115,13 @@ export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,
  }
  const top=candidates[0];
  if(!top||top.explained<1||top.strong<.44||top.rating<2.1)
-  return {kind:'uncertain',count:seen.size,reason:'missing-supported-change',best:top};
+  return {kind:'uncertain',count:seen.size,reason:'missing-supported-change',best:top,twoPlyConsidered};
  const next=candidates.find(c=>c.position!==top.position);
  const margin=top.rating-(next?.rating??-Infinity);
- if(margin<1.2)return {kind:'uncertain',count:seen.size,margin,reason:'ambiguous',best:top};
+ if(margin<1.2)return {kind:'uncertain',count:seen.size,margin,reason:'ambiguous',best:top,twoPlyConsidered};
  return {kind:'move',key:top.key,sequence:top.sequence,score:top.rating,
-  confidence:top.strong,margin,count:seen.size,reason:'sparse-physical-evidence'};
+  confidence:top.strong,margin,count:seen.size,reason:'sparse-physical-evidence',
+  explained:top.explained,twoPlyConsidered};
 }
 
 // Occlusion: a hand/arm hides many pieces at once. Detector recall varies
