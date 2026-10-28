@@ -20,17 +20,48 @@ export function imageToBoard(point,x,y){
 }
 export const PHYSICAL_PIECES='bknpqrBKNPQR';
 export const toVisualTile=(r,c)=>(7-r)*8+c;
+// Image point of the centre of a piece's base. The bottom edge of the box is
+// the FRONT of the base; the base centre lies half a base-width behind it,
+// foreshortened by the local board tilt (1 from above, ->0 edge-on). The old
+// fixed `bottom - w/3` mapped pieces one rank off on steep handheld views.
+export function pieceFoot(box,point){
+  const bottom=box.cy+box.h*.5;
+  const g=imageToBoard(point,box.cx,bottom);
+  let f=.66;
+  if(g){
+    const e=1/16,a=point(g.u-e,g.v),b=point(g.u+e,g.v),c=point(g.u,g.v-e),d=point(g.u,g.v+e);
+    // Ratio of the cell's projected depth to its projected width along x.
+    const across=Math.max(Math.abs(b.x-a.x),Math.abs(d.x-c.x));
+    const depth=Math.max(Math.abs(d.y-c.y),Math.abs(b.y-a.y));
+    if(across>1e-6&&Number.isFinite(depth))f=Math.max(.15,Math.min(1,depth/across));
+  }
+  return {x:box.cx,y:bottom-box.w*.5*f,foreshortening:f};
+}
+export function nmsBoxes(boxes,{iou=.45,max=64}={}){
+  const keep=[];
+  for(const d of [...boxes].sort((a,b)=>b.confidence-a.confidence)){
+    let ok=true;
+    for(const k of keep){
+      const w=Math.min(d.cx+d.w/2,k.cx+k.w/2)-Math.max(d.cx-d.w/2,k.cx-k.w/2);
+      const h=Math.min(d.cy+d.h/2,k.cy+k.h/2)-Math.max(d.cy-d.h/2,k.cy-k.h/2);
+      const inter=Math.max(0,w)*Math.max(0,h),union=d.w*d.h+k.w*k.h-inter;
+      if(union>0&&inter/union>iou){ok=false;break;}
+    }
+    if(ok){keep.push(d);if(keep.length>=max)break;}
+  }
+  return keep;
+}
 export function mapPhysicalDetections(detections,point,{
   threshold=.26,upperPadding=.05
 }={}){
-  // Like CameraChessWeb, use the piece's foot rather than bounding-box
-  // centre; tall kings would otherwise be mapped to the rank behind.
+  // Use the piece's base rather than the box centre; tall kings would
+  // otherwise be mapped to the rank behind.
   const state=new Float32Array(64*13);
   const squares=new Map();
   for(const box of detections){
     if(box.confidence<threshold)continue;
-    const anchorX=box.cx,anchorY=box.cy+box.h*.5-box.w/3;
-    const projected=imageToBoard(point,anchorX,anchorY);
+    const foot=pieceFoot(box,point);
+    const projected=imageToBoard(point,foot.x,foot.y);
     if(!projected||projected.u<-.04||projected.v<-.04||
         projected.u>1.04||projected.v>1.04)continue;
     const c=Math.max(0,Math.min(7,Math.floor(projected.u*8)));
@@ -58,7 +89,9 @@ export function mapPhysicalDetections(detections,point,{
 }
 // Deterministic YOLOv8/LeYOLO output decoding, without fragile assumptions
 // about total number of anchors. Expected [1,16,N] and 12 piece classes.
-export function decodeYolo(raw,shape,{confidence=.23,maxDetections=130}={}){
+// Raw anchors are de-duplicated with NMS BEFORE the cap: previously the
+// 130-box cap filled with duplicate anchors of a few pieces and dropped others.
+export function decodeYolo(raw,shape,{confidence=.23,maxDetections=64,nms=true}={}){
   if(shape.length!==3||shape[0]!==1||shape[1]!==16)return [];
   const n=shape[2],out=[];
   for(let i=0;i<n;i++){
@@ -72,6 +105,6 @@ export function decodeYolo(raw,shape,{confidence=.23,maxDetections=130}={}){
     if(![cx,cy,w,h].every(Number.isFinite)||w<2||h<2)continue;
     out.push({cx,cy,w,h,className:PHYSICAL_PIECES[id],confidence:best});
   }
-  // Keep only reasonably confident detections, limit clutter/duplicates.
+  if(nms)return nmsBoxes(out,{max:maxDetections});
   return out.sort((a,b)=>b.confidence-a.confidence).slice(0,maxDetections);
 }
