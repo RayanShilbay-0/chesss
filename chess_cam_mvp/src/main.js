@@ -228,6 +228,19 @@ function engineEvent(event){
     if(event.kind==='done')$('analysis-state').textContent=`عمق ${lastDepth}`;
   }
 }
+// End-to-end latency: confirmed camera move -> first engine line -> arrow.
+const latency={pending:null,samples:[]};
+window.chessCamMetrics=latency;
+function recordArrowLatency(){
+  const p=latency.pending;
+  if(!p||p.fen!==game.fen())return;
+  const ms=Math.round(performance.now()-p.confirmedAt);
+  latency.samples.push(ms);if(latency.samples.length>50)latency.samples.shift();
+  latency.pending=null;
+  const sorted=[...latency.samples].sort((a,b)=>a-b);
+  $('engine-health').textContent='من تأكيد النقلة إلى السهم: '+ms+' مللي ثانية (الوسيط '+
+    sorted[sorted.length>>1]+' · '+sorted.length+' قياس)';
+}
 function renderAnalysis(){
   const valid=analyzeLines.filter(x=>x.move && (x.cp!==null||x.mate!==null));
   if(!valid.length)return;
@@ -249,7 +262,7 @@ function renderAnalysis(){
     row.append(name,score);$('top-lines').appendChild(row);
   });
   renderBoard();
-  vision.setSuggestedMove(best.move);
+  vision.setSuggestedMove(best.move);recordArrowLatency();
 }
 function setCameraButtons(){
   const on=!!vision.stream,ready=vision.corners.length===4,ref=!!vision.reference;
@@ -324,6 +337,7 @@ function playCameraSequence(sequence){
     mlCandidate='';mlAgreement=0;
     if(warningNoSync)autoScan=false;
     unmatchedSince=0;lastRecognizedAt=Date.now();
+    latency.pending={fen:game.fen(),confirmedAt:performance.now(),source:'camera'};
     beginAnalysis();setCameraButtons();
     $('vision-message').textContent=warningNoSync?
       'سجّلت '+applied+' نقلة، لكن قطع الصورة لا تطابق الرقعة الرقمية حاليًا. أوقفت المراقبة مؤقتًا لتصحيح الوضعية.':
