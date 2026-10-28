@@ -247,10 +247,14 @@ function setCameraButtons(){
   $('auto-scan').checked=monitoring;
   const facingName={w:'الأبيض أسفل',b:'الأسود أسفل',l:'الأبيض يسار',r:'الأبيض يمين'};
   $('camera-orientation').textContent='اتجاه الكاميرا: '+(facingName[vision.side]||'بانتظار التعرف');
-  $('ai-vision-state').textContent=(modelMode()||physicalMode())?
-    (mlBusy?'النموذج يحلل الصورة…':mlLastResult?
-      'CNN | دقة متوسطة: '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% | '+mlScanCount+' فحص':'النموذج المدرب جاهز للتحميل عند حفظ البداية'):
-    'الوضع التجريبي القديم: اكتشاف تغيّر المربعات';
+  $('ai-vision-state').textContent=physicalMode()?
+    (mlBusy?'LeYOLO يفحص القطع الحقيقية…':physicalVision.last?
+      'LeYOLO · '+physicalVision.last.count+' قطعة · '+mlScanCount+' فحوصات':
+      'الكاميرا الحقيقية · LeYOLO جاهز'):
+    modelMode()?(mlBusy?'CNN يفحص الرقعة…':mlLastResult?
+      'CNN · الثقة '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% · '+mlScanCount+' فحوصات':
+      'نموذج الرقعة الإلكترونية جاهز'):
+    'الوضع التقليدي القديم';
   $('ai-vision-state').classList.toggle('scanning',!!((modelMode()||physicalMode())&&monitoring&&!mlBusy));
   $('vision-performance').textContent=physicalMode()?
     (mlLastResult?'LeYOLO ONNX · '+mlScanCount+' فحوصات | '+boardTracker.state+' · '+boardTracker.inliers+' معالم':'نموذج القطع الحقيقية (LeYOLO) + تعقب OpenCV'):
@@ -289,8 +293,12 @@ function playCameraSequence(sequence){
     }
     selected=null;stableHits=0;stableKey='';lastScanStatus='';
     hideSuggestion();
-    const sync=modelMode()?{ok:true}:vision.syncReference(game);
-    warningNoSync=modelMode()?false:Boolean(sync?.model?.reliable&&sync.model.baselineMismatch>=5);
+    // Real-board LeYOLO recognizes PIECES, not old-frame pixel differences.
+    // Legacy syncReference is invalid with a moving camera and used to
+    // falsely stop scanning immediately after an otherwise correct move.
+    const learnedMode=modelMode()||physicalMode();
+    const sync=learnedMode?{ok:true}:vision.syncReference(game);
+    warningNoSync=learnedMode?false:Boolean(sync?.model?.reliable&&sync.model.baselineMismatch>=5);
     mlCandidate='';mlAgreement=0;
     if(warningNoSync)autoScan=false;
     unmatchedSince=0;lastRecognizedAt=Date.now();
@@ -340,7 +348,7 @@ async function readTrainedCamera({manual=false}={}){
       const highTrust=result.confidence>=settings.confidence&&
         result.margin>=settings.margin;
       $('vision-message').textContent='نقلة '+result.key+' · الثقة '+
-        Math.round((decoded?.meanConfidence||0)*100)+'% · '+mlAgreement+'/'+
+        Math.round((physicalMode()?result.confidence:(decoded?.meanConfidence||0))*100)+'% · '+mlAgreement+'/'+
         settings.agreement+' تأكيد';
       if(highTrust&&mlAgreement>=settings.agreement){
         const seq=result.sequence.map(m=>({from:m.from,to:m.to,promotion:m.promotion||'q'}));
@@ -360,12 +368,15 @@ async function readTrainedCamera({manual=false}={}){
       if(result.kind==='unchanged'){
         warningNoSync=false;
         if(manual||mlScanCount%4===0)
-          $('vision-message').textContent='الوضعية المصورة تطابق اللوحة الحالية · الثقة '+confidence+'%.';
+          $('vision-message').textContent=physicalMode()?
+            'LeYOLO يرى '+(count??physicalVision.last?.count??0)+' قطعة؛ لم تتأكد نقلة جديدة بعد.':
+            'الوضعية المصورة تطابق اللوحة الحالية · ثقة '+confidence+'%.';
       }else if(manual||mlScanCount%2===0){
-        $('vision-message').textContent=result.kind==='unreliable'?
+        $('vision-message').textContent=physicalMode()?
+          'LeYOLO اكتشف '+(count??0)+' قطعة، لكن النقلة لم تتأكد. تأكد أن الإطار يغطي كل A–H و1–8 وأبعد اليد عن القطع.':
+          result.kind==='unreliable'?
           'النموذج غير واثق من القطع ('+confidence+'%). قرّب الرقعة وثبّت الصورة.':
-          'تعرف النموذج على وضعية مختلفة لا تطابق نقلة قانونية مؤكدة ('+confidence+
-          '%). إذا فاتت نقلات، جرّب استعادة الوضعية بعد مراجعتها.';
+          'قراءة غير حاسمة ('+confidence+'%). جرّب تصحيح المزامنة بعد مراجعة الرقعة.';
       }
     }
   }catch(err){
