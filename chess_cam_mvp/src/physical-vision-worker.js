@@ -15,17 +15,26 @@ function half(x){
   }
   return sign|((exp-112)<<10)|((frac+0x1000)>>13);
 }
+// A per-pixel Float32Array allocation happened 3×480×288 times per
+// inference. Convert the 256 possible 8-bit colours ONCE instead.
+const HALF_LUT=new Uint16Array(256);
+for(let v=0;v<256;v++)HALF_LUT[v]=half(v/255);
 function resize(image,width,height){
   const scale=Math.min(WIDTH/width,HEIGHT/height),dw=Math.floor(width*scale),dh=Math.floor(height*scale);
   const offX=Math.floor((WIDTH-dw)/2),offY=Math.floor((HEIGHT-dh)/2);
-  const tensor=new Uint16Array(WIDTH*HEIGHT*3),padding=half(114/255);
-  tensor.fill(padding);
+  const tensor=new Uint16Array(WIDTH*HEIGHT*3);
+  tensor.fill(HALF_LUT[114]);
   const stride=WIDTH*HEIGHT;
-  for(let y=0;y<dh;y++)for(let x=0;x<dw;x++){
-    const srcX=Math.min(width-1,Math.floor((x+.5)/scale));
+  for(let y=0;y<dh;y++){
     const srcY=Math.min(height-1,Math.floor((y+.5)/scale));
-    const index=(srcY*width+srcX)*4,target=(y+offY)*WIDTH+x+offX;
-    for(let k=0;k<3;k++)tensor[k*stride+target]=half(image[index+k]/255);
+    const sourceRow=srcY*width*4,targetRow=(y+offY)*WIDTH+offX;
+    for(let x=0;x<dw;x++){
+      const srcX=Math.min(width-1,Math.floor((x+.5)/scale));
+      const index=sourceRow+srcX*4,target=targetRow+x;
+      tensor[target]=HALF_LUT[image[index]];
+      tensor[stride+target]=HALF_LUT[image[index+1]];
+      tensor[2*stride+target]=HALF_LUT[image[index+2]];
+    }
   }
   return {tensor,scale,offX,offY};
 }

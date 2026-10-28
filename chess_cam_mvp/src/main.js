@@ -730,13 +730,16 @@ document.addEventListener('visibilitychange',()=>{
   setCameraButtons();
   if(!document.hidden&&vision.stream&&autoScan) $('vision-message').textContent='عادت الكاميرا إلى الواجهة؛ المراقبة تتحقق من الوضعية الآن.';
 });
+let lastUiPoll=0;
 autoInterval=setInterval(()=>{
   if(autoScan&&vision.stream&&vision.reference&&(!pendingMove||physicalMode())&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen')){
     if(modelMode()||physicalMode()){
-      if(!mlBusy&&Date.now()-mlLastAt>=Math.max(profile().interval,physicalMode()?800:0))void readTrainedCamera();
+      if(!mlBusy&&Date.now()-mlLastAt>=Math.max(profile().interval,physicalMode()?440:0))void readTrainedCamera();
     }else readCamera(true);
   }
-  setCameraButtons();
+  if(Date.now()-lastUiPoll>=800){
+    lastUiPoll=Date.now();setCameraButtons();
+  }
 },170);
 // Adaptive pose-tracking cadence: up to 20 Hz, but keep the synchronous
 // OpenCV work under ~40% of the main thread so video and UI stay smooth.
