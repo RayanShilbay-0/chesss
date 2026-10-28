@@ -183,6 +183,7 @@ function setCameraButtons(){
   state.classList.toggle('scanning',!!(monitoring&&!paused&&!pending&&!warningNoSync&&!stale));
   state.classList.toggle('attention',!!(pending||warningNoSync||stale));
   $('auto-scan').checked=monitoring;
+  $('camera-orientation').textContent='اتجاه الكاميرا: '+(vision.side==='w'?'الأبيض أسفل':'الأسود أسفل');
   $('ai-vision-state').textContent=modelMode()?
     (mlBusy?'النموذج يحلل الصورة…':mlLastResult?
       'CNN | دقة متوسطة: '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% | '+mlScanCount+' فحص':'النموذج المدرب جاهز للتحميل عند حفظ البداية'):
@@ -484,8 +485,17 @@ $('reject-suggestion').addEventListener('click',()=>{
   $('vision-message').textContent='تم تجاهل القراءة. إذا تغيّرت الرقعة بالفعل، صحح لوحة ChessCam أولًا ثم استخدم استعادة المزامنة.';
   setCameraButtons();
 });
+$('camera-facing').addEventListener('change',()=>{
+  vision.side=$('camera-facing').value==='auto'?mySide:$('camera-facing').value;
+  resetModelTracking();
+  vision.drawOverlay();
+  $('vision-message').textContent='تم تغيير اتجاه الرقعة المصورة. سيتم التحقق منه من القطع في المراقبة التالية.';
+  setCameraButtons();
+});
 $('my-side').addEventListener('change',e=>{
-  mySide=e.target.value;vision.side=mySide;
+  mySide=e.target.value;
+  vision.side=$('camera-facing').value==='auto'?mySide:$('camera-facing').value;
+  resetModelTracking();
   vision.reference=null;autoScan=false;$('auto-scan').checked=false;hideSuggestion();
   $('vision-message').textContent='تغيّر اتجاه الرقعة. أعد حفظ الصورة المرجعية بعد ضبط الكاميرا.';
   setCameraButtons();renderBoard();

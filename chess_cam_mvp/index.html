@@ -35,6 +35,13 @@
      </div>
      <p class="helper">للتجربة ضد بوت إلكتروني على الكمبيوتر استخدم «مشاركة النافذة» إن كانت متاحة، أو كاميرا الهاتف الموجهة إلى الشاشة. النموذج الجديد متخصّص في القطع ثنائية الأبعاد على الشاشة.</p>
      <div class="camera-actions"><button class="secondary" id="auto-board" disabled>تحديد الرقعة تلقائيًا (Fenshot)</button></div>
+     <label class="setting-label" for="camera-facing">اتجاه الرقعة المصوّرة (مستقل عن لون اللاعب)</label>
+     <select id="camera-facing" class="setting-control">
+       <option value="auto" selected>تحديد تلقائي من أماكن القطع</option>
+       <option value="w">الأبيض أسفل الصورة</option>
+       <option value="b">الأسود أسفل الصورة</option>
+     </select>
+     <div class="scan-timestamp" id="camera-orientation">اتجاه الكاميرا: الأبيض أسفل</div>
      <label for="vision-mode">طريقة قراءة الرقعة</label>
      <select id="vision-mode" aria-label="طريقة التعرف على القطع">
        <option value="model" selected>نموذج ذكاء اصطناعي مدرّب (ONNX) — للرقع الإلكترونية</option>

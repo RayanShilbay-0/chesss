@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Chess} from 'chess.js';
-import {inferMovesFromModel,decodedPosition,visualIndex,TILE_LABELS} from '../src/model-moves.js';
+import {inferMovesFromModel,decodedPosition,visualIndex,TILE_LABELS,chooseVisualOrientation} from '../src/model-moves.js';
 function probabilitiesFor(game,correct=.985){
  const arr=new Float32Array(832);
  const squares=game.board().flat();
@@ -52,4 +52,28 @@ test('low-confidence model output is rejected, not accepted as a chess move',()=
  const arr=new Float32Array(832).fill(1/13);
  const r=inferMovesFromModel(new Chess(),arr);
  assert.equal(r.kind,'unreliable');
+});
+
+test('black-facing physical camera orientation wins over white player setting',()=>{
+  const game=new Chess();
+  const standard=probabilitiesFor(game);
+  const rotated=new Float32Array(832);
+  for(let i=0;i<64;i++){
+    const src=visualIndex(i,true),dst=visualIndex(i,false);
+    rotated.set(standard.subarray(src*13,src*13+13),dst*13);
+  }
+  const orientation=chooseVisualOrientation(game,rotated,'w');
+  assert.equal(orientation.side,'b');
+  assert.equal(orientation.verified,true);
+  const next=new Chess(game.fen());next.move('e4');
+  const expected=probabilitiesFor(next);
+  const nextRotated=new Float32Array(832);
+  for(let i=0;i<64;i++)
+    nextRotated.set(expected.subarray(visualIndex(i,true)*13,visualIndex(i,true)*13+13),visualIndex(i,false)*13);
+  const move=inferMovesFromModel(game,nextRotated,{whiteBottom:false});
+  assert.equal(move.key,'e2e4',JSON.stringify(move));
+});
+test('orientation inference keeps player color separate from camera viewpoint',()=>{
+  const game=new Chess(),raw=probabilitiesFor(game);
+  assert.equal(chooseVisualOrientation(game,raw,'b').side,'w');
 });

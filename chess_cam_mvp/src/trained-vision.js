@@ -1,5 +1,5 @@
 import { boardToTiles } from '@scoriiu/fenshot';
-import { inferMovesFromModel, decodedPosition } from './model-moves.js';
+import { inferMovesFromModel, decodedPosition, chooseVisualOrientation } from './model-moves.js';
 import ortJsUrl from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs?url';
 import ortWasmUrl from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm?url';
 export function wasmAssetUrls(){return {mjs:new URL(ortJsUrl,location.href).href,wasm:new URL(ortWasmUrl,location.href).href};}
@@ -9,7 +9,7 @@ const MODEL_REFRESH_MS=5500;
 
 const OUT_SIZE=256;
 export class TrainedChessVision {
-  constructor(camera){this.camera=camera;this.sessionPromise=null;this.cache=null;this.lastOutput=null;this.signature=null;this.signatureTime=0;this.worker=null;this.workerReady=null;this.requests=new Map();this.reqId=0;this.fallback=false;this.backend='غير مهيّأ';this.skipped=0;this.stats={prep:0,inference:0,total:0};}
+  constructor(camera){this.camera=camera;this.sessionPromise=null;this.cache=null;this.lastOutput=null;this.signature=null;this.signatureTime=0;this.worker=null;this.workerReady=null;this.requests=new Map();this.reqId=0;this.fallback=false;this.backend='غير مهيّأ';this.skipped=0;this.stats={prep:0,inference:0,total:0};this.orientation=null;}
   async session(){
     if(!this.sessionPromise){
       this.sessionPromise=(async()=>{
@@ -89,7 +89,7 @@ export class TrainedChessVision {
     return {data:raw.probs?.data,modelMs:performance.now()-t,backend:this.backend};
   }
   resetTracking(){
-    this.signature=null;this.signatureTime=0;this.skipped=0;this.lastOutput=null;
+    this.signature=null;this.signatureTime=0;this.skipped=0;this.lastOutput=null;this.orientation=null;
   }
   close(){
     this.worker?.terminate();this.worker=null;this.workerReady=null;
@@ -152,7 +152,21 @@ export class TrainedChessVision {
     }
     const probabilities=output.data;
     if(!probabilities||probabilities.length!==832)throw new Error('ناتج النموذج ليس 64×13');
-    const whiteBottom=this.camera.side!=='b';
+    const mode=document.getElementById('camera-facing')?.value||'auto';
+    let side=mode==='auto'?this.orientation?.side||this.camera.side||'w':mode;
+    let orientation=null;
+    if(mode==='auto'){
+      orientation=chooseVisualOrientation(game,probabilities,side);
+      // Once orientation is strongly established, retain it until new
+      // calibration; weak screenshots must not flip the AR coordinates.
+      if(orientation.verified||!this.orientation){
+        side=orientation.side;
+        this.orientation={side,verified:orientation.verified};
+      }
+    }else this.orientation={side,verified:true};
+    this.camera.side=side;
+    this.camera.drawOverlay();
+    const whiteBottom=side!=='b';
     const result=inferMovesFromModel(game,probabilities,{whiteBottom});
     const decoded=decodedPosition(probabilities,whiteBottom);
     this.signature=signature;this.signatureTime=now;

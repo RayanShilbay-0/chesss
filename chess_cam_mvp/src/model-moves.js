@@ -106,3 +106,29 @@ export function inferMovesFromModel(game,probabilities,{whiteBottom=true,maxTwo=
   return {kind:'move',sequence:top.sequence,key:top.key,score:top.score,
     confidence:decoded.meanConfidence,decoded,highDifference,margin};
 }
+
+// Infer camera orientation independently from the player's chosen color.
+// Fenshot emits visual tiles starting at the physical bottom-left.
+export function orientationLikelihood(game,probabilities,whiteBottom){
+  if(!probabilities||probabilities.length!==832)return -Infinity;
+  const chars=boardChars(game);
+  const score=current=>logScore(current,probabilities,whiteBottom);
+  let best=score(chars);
+  // Starting the camera after a first move must still allow orientation
+  // inference. Check current and all immediate legal continuations.
+  for(const m of game.moves({verbose:true})){
+    game.move(m);
+    best=Math.max(best,score(boardChars(game))-.4);
+    game.undo();
+  }
+  return best;
+}
+export function chooseVisualOrientation(game,probabilities,preferred='w'){
+  const white=orientationLikelihood(game,probabilities,true);
+  const black=orientationLikelihood(game,probabilities,false);
+  const gap=white-black;
+  // Strong separation means the picture has a clear physical orientation.
+  // When uncertain, preserve the known setting rather than flip-flopping.
+  const side=Math.abs(gap)>9?(gap>0?'w':'b'):(preferred==='b'?'b':'w');
+  return {side,white,black,margin:Math.abs(gap),verified:Math.abs(gap)>9};
+}
