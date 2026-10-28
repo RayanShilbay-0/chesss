@@ -8,11 +8,17 @@ const proc=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127
 let log='';proc.stdout.on('data',x=>log+=String(x));proc.stderr.on('data',x=>log+=String(x));
 let browser;
 async function waitReady(){
+ let lastError='';
  for(let i=0;i<100;i++){
   if(proc.exitCode!==null)throw Error(log);
-  try{if((await fetch(base)).ok)return;}catch{}
+  try{
+    const response=await fetch(base);
+    if(response.ok)return;
+    if(i%12===0)lastError='HTTP '+response.status+' '+(await response.text()).slice(0,700);
+  }catch(e){lastError=String(e)}
   await new Promise(r=>setTimeout(r,250));
- }throw Error('Server timeout '+log);
+ }
+ throw Error('Server timeout '+lastError+' | Vite log: '+log);
 }
 async function main(){
  await waitReady();
