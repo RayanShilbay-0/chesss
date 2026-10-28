@@ -15,3 +15,4 @@ private_dataset/
 bench_out/
 tools/bench/__pycache__/
 public/test-fixtures/
+test-artifacts/
