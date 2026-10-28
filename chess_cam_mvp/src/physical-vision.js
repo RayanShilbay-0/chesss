@@ -234,17 +234,22 @@ export class PhysicalChessVision{
     const observed=observedSquares(mapped.detections,side);
     this.evidence.add(game.fen(),observed,occluded?new Set():visible);
     const snap=this.evidence.snapshot();
-    const instant=inferPhysicalMoves(game,mapped.detections,{orientation:side});
     const temporal=inferPhysicalMoves(game,[],{observed:snap.seen,empty:snap.empty});
-    // Prefer the temporal reading; a single frame may only confirm the same.
-    const result=occluded&&temporal.kind==='move'?{kind:'uncertain',reason:'occluded',best:temporal}:
-      temporal.kind==='move'||instant.kind!=='move'?temporal:
+    // An independent instantaneous search is useful only when the temporal
+    // model is uncertain. Running both on EVERY frame doubled legal-move
+    // reconstruction work (especially when two moves occurred quickly).
+    const instant=temporal.kind==='move'?null:
+      inferPhysicalMoves(game,mapped.detections,{orientation:side});
+    const result=occluded&&temporal.kind==='move'?
+      {kind:'uncertain',reason:'occluded',best:temporal}:
+      temporal.kind==='move'||instant?.kind!=='move'?temporal:
       {kind:'uncertain',reason:'single-frame-only',best:instant};
     result.occluded=occluded;result.visibleSquares=visible.size;
     // FEN reconstruction is disabled for real pieces: a missing box does
     // NOT mean an empty square (unlike the digital Fenshot model).
     const decoded=null;
-    this.last={result,decoded,time:Date.now(),count:mapped.count,detections:mapped.detections};
+    this.last={result,decoded,time:Date.now(),count:mapped.count,
+      detections:mapped.detections,stats:{inference:output.ms}};
     return {result,decoded,count:mapped.count,detections:mapped.detections,
       stats:{inference:output.ms,total:output.ms,backend:this.backend},
       unstable:false};
