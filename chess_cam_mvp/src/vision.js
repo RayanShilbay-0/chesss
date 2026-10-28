@@ -1,15 +1,13 @@
 import { recognizeSequence } from './detector.js';
 import { shouldRefreshBaseline } from './tracking-policy.js';
+import { visualSquare } from './physical-orientation.js';
 // Camera observation, NOT a trained piece recognizer. Detects changed squares between stable snapshots,
 // then proposes a legal move based on those changes. Requires a fixed overhead camera.
 const file='abcdefgh';
 const median=a=>{const b=[...a].sort((x,y)=>x-y);return b.length?b[Math.floor(b.length/2)]:0;};
 const quantile=(a,q)=>{const b=[...a].sort((x,y)=>x-y);return b.length?b[Math.floor((b.length-1)*q)]:0;};
 const cellName=(r,c,side)=>side==='w'?file[c]+(8-r):file[7-c]+(r+1);
-const visualCell=(square,side)=>{
-  const c=file.indexOf(square[0]), r=8-Number(square[1]);
-  return side==='w'?{r,c}:{r:7-r,c:7-c};
-};
+const visualCell=(square,side)=>visualSquare(square[0],square[1],side);
 
 export class CameraVision {
  constructor(video,canvas,stage,onMessage){

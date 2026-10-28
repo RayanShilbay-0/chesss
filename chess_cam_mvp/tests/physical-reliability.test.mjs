@@ -40,3 +40,15 @@ test('two rapid chess moves detected from distinct new piece locations',()=>{
  const r=inferPhysicalMoves(new Chess(),[det('e4','P'),det('e6','p'),det('d2','P')]);
  assert.equal(r.kind,'move',JSON.stringify(r));assert.equal(r.key,'e2e4 e7e6');
 });
+
+test('physical piece evidence identifies e4 when white is on camera left',()=>{
+  // Real a1 appears at the camera top-left after 90 degree rotation.
+  const tile=(7-4)*8+4;
+  // e4: canonical row 4, file 4 -> rotated CW row 4, col 3.
+  const srcRow=4,srcCol=3;
+  const visual=(7-srcRow)*8+srcCol;
+  const result=inferPhysicalMoves(new Chess(),
+   [{tile:visual,className:'P',confidence:.95}],{orientation:'l'});
+  assert.equal(result.kind,'move',JSON.stringify(result));
+  assert.equal(result.key,'e2e4');
+});

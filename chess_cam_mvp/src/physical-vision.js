@@ -3,11 +3,12 @@ import {decodeYolo,mapPhysicalDetections} from './physical-geometry.js';
 import {cropPhysicalBoard} from './physical-crop.js';
 import {scoreChessboardQuad,expandQuadToPieces} from './physical-calibration.js';
 import {inferPhysicalMoves} from './physical-evidence.js';
+import {physicalOrientation} from './physical-orientation.js';
 export class PhysicalChessVision{
   constructor(camera){
     this.camera=camera;this.worker=null;this.initPromise=null;
     this.pending=new Map();this.request=0;this.last=null;
-    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.orientation=null;
+    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
   }
   async setup(){
     if(this.initPromise)return this.initPromise;
@@ -35,7 +36,7 @@ export class PhysicalChessVision{
   }
   warmUp(){void this.setup().catch(()=>{});}
   reset(){
-    this.filtered=null;this.lastBoard=null;this.last=null;this.lastTime=0;this.orientation=null;
+    this.filtered=null;this.lastBoard=null;this.last=null;this.lastTime=0;this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
   }
   close(){this.worker?.terminate();this.worker=null;this.initPromise=null;
     for(const p of this.pending.values())p.reject(Error('Camera stopped'));
@@ -174,17 +175,20 @@ export class PhysicalChessVision{
     }
     this.filtered=mapped.probabilities;
     const manual=document.getElementById('camera-facing')?.value||'auto';
-    const inferred=chooseVisualOrientation(game,mapped.probabilities,this.orientation||this.camera.side);
-    if(manual==='auto'&&(!this.orientation||inferred.verified&&inferred.margin>14))
-      this.orientation=inferred.side;
+    const proposal=physicalOrientation(mapped.detections);
+    if(manual==='auto'&&proposal.verified){
+      if(this.pendingOrientation===proposal.side)this.orientationHits++;
+      else{this.pendingOrientation=proposal.side;this.orientationHits=1;}
+      if(!this.orientation||this.orientationHits>=3)this.orientation=proposal.side;
+    }
     const side=manual==='auto'?(this.orientation||this.camera.side):manual;
-    if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay();}
-    const whiteBottom=side==='w';
-    // For physical pieces the YOLO detector can miss tall/occluded items.
-    // Missing detection MUST NOT equal an empty square (the digital CNN
-    // assumes full 64-square classification, which is wrong for real cameras).
-    const result=inferPhysicalMoves(game,mapped.detections,{whiteBottom});
-    const decoded=decodedPosition(mapped.probabilities,whiteBottom);
+    if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay?.();}
+    // Real LeYOLO is sparse. Never treat an invisible/occluded piece as an
+    // empty square; evaluate only observed pieces against legal game moves.
+    const result=inferPhysicalMoves(game,mapped.detections,{orientation:side});
+    // FEN reconstruction is disabled for real pieces: a missing box does
+    // NOT mean an empty square (unlike the digital Fenshot model).
+    const decoded=null;
     this.last={result,decoded,time:Date.now(),count:mapped.count,detections:mapped.detections};
     return {result,decoded,count:mapped.count,detections:mapped.detections,
       stats:{inference:output.ms,total:output.ms,backend:this.backend},

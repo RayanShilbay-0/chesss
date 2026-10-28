@@ -245,7 +245,8 @@ function setCameraButtons(){
   state.classList.toggle('scanning',!!(monitoring&&!paused&&!pending&&!warningNoSync&&!stale));
   state.classList.toggle('attention',!!(pending||warningNoSync||stale));
   $('auto-scan').checked=monitoring;
-  $('camera-orientation').textContent='اتجاه الكاميرا: '+(vision.side==='w'?'الأبيض أسفل':'الأسود أسفل');
+  const facingName={w:'الأبيض أسفل',b:'الأسود أسفل',l:'الأبيض يسار',r:'الأبيض يمين'};
+  $('camera-orientation').textContent='اتجاه الكاميرا: '+(facingName[vision.side]||'بانتظار التعرف');
   $('ai-vision-state').textContent=(modelMode()||physicalMode())?
     (mlBusy?'النموذج يحلل الصورة…':mlLastResult?
       'CNN | دقة متوسطة: '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% | '+mlScanCount+' فحص':'النموذج المدرب جاهز للتحميل عند حفظ البداية'):
@@ -259,7 +260,7 @@ function setCameraButtons(){
       ' صور ساكنة · '+trainedVision.backend:
       'النموذج ينتقل إلى عامل خلفي (Web Worker) عند توفره'):'فحص بصري تقليدي';
   $('auto-board').disabled=!on;
-  $('ml-recover').disabled=!mlLastPrediction||mlLastPrediction.meanConfidence<.75||
+  $('ml-recover').disabled=physicalMode()||!mlLastPrediction||mlLastPrediction.meanConfidence<.75||
     !mlLastPrediction.placement.includes('K')||!mlLastPrediction.placement.includes('k');
   $('start-camera').textContent=on?'إيقاف الكاميرا':'تشغيل الكاميرا';
   $('camera-state').textContent=on?(vision.sourceKind==='screen'?'نافذة الكمبيوتر مباشرة':'الكاميرا مباشرة'):'الكاميرا متوقفة';
@@ -581,7 +582,7 @@ $('camera-facing').addEventListener('change',()=>{
   vision.side=$('camera-facing').value==='auto'?mySide:$('camera-facing').value;
   resetModelTracking();
   vision.drawOverlay();
-  $('vision-message').textContent='تم تغيير اتجاه الرقعة المصورة. سيتم التحقق منه من القطع في المراقبة التالية.';
+  $('vision-message').textContent='تم تغيير اتجاه الرقعة. الوضع الحقيقي يدعم الأبيض أعلى/أسفل/يسار/يمين الصورة.';
   setCameraButtons();
 });
 $('my-side').addEventListener('change',e=>{
