@@ -53,15 +53,18 @@ async function recoverPhysicalCorners({manual=false}={}){
     const found=await physicalVision.detectBoardCorners();
     if(!found)return false;
     if(!manual&&vision.corners.length===4&&!poseIsValid(vision.corners,found.corners,
-      vision.canvas.width,vision.canvas.height))return false;
+      vision.canvas.width,vision.canvas.height)&&found.quality?.aligned<30)return false;
+    // A fully verified new 7x7 grid can reacquire the board even after the
+    // phone rotated a large angle. Do not remain stuck on stale AR geometry.
     // Preserve the chess square order. The four corners follow the camera
     // image, while color-facing orientation is inferred independently.
     vision.corners=found.corners;
     vision.poseValid=true;vision.drawOverlay();
     resetModelTracking();
     if(boardTracker.active)boardTracker.reset();
-    $('tracker-state').textContent='تمت استعادة الرقعة تلقائيًا من '+found.points+
-      ' نقطة داخلية؛ تتبع المنظور عاد للعمل';
+    $('tracker-state').textContent='تمت استعادة الرقعة الكاملة · '+found.quality.aligned+
+      ' نقطة شبكة متطابقة · '+Math.round((found.quality.coverage??1)*100)+
+      '% من القطع داخل الإطار';
     return true;
   }catch(err){
     if(manual)$('vision-message').textContent='تعذر اكتشاف الرقعة: '+String(err.message);
