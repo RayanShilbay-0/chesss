@@ -1,5 +1,6 @@
 import {inferMovesFromModel,decodedPosition,chooseVisualOrientation} from './model-moves.js';
 import {decodeYolo,mapPhysicalDetections} from './physical-geometry.js';
+import {cropPhysicalBoard} from './physical-crop.js';
 export class PhysicalChessVision{
   constructor(camera){
     this.camera=camera;this.worker=null;this.initPromise=null;
@@ -111,15 +112,15 @@ export class PhysicalChessVision{
         y:((b.y-a.y+g*b.y)*u+(d.y-a.y+h*d.y)*v+a.y)/z};
     };
     const prediction=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject}));
-    const copied=new Uint8ClampedArray(frame.data);
-    this.worker.postMessage({type:'infer',id,rgba:copied,
-      width:frame.width,height:frame.height},[copied.buffer]);
+    const clipped=cropPhysicalBoard(frame,cornerSnapshot);
+    this.worker.postMessage({type:'infer',id,rgba:clipped.rgba,
+      width:clipped.width,height:clipped.height},[clipped.rgba.buffer]);
     const output=await prediction;
     const rawDetections=decodeYolo(output.raw,output.shape);
     // Undo 480x288 letterbox before projection to the moving board plane.
     const detections=rawDetections.map(d=>({
-      ...d,cx:(d.cx-output.offX)/output.scale,
-      cy:(d.cy-output.offY)/output.scale,
+      ...d,cx:(d.cx-output.offX)/output.scale+clipped.left,
+      cy:(d.cy-output.offY)/output.scale+clipped.top,
       w:d.w/output.scale,h:d.h/output.scale
     }));
     const mapped=mapPhysicalDetections(detections,point);

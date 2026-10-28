@@ -9,7 +9,7 @@
     "prebuild": "node scripts/copy-ai-model.mjs && node scripts/copy-engine.mjs && node scripts/copy-opencv.mjs && node scripts/copy-physical-model.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "check": "node --check src/main.js && node --check src/vision.js && node --check src/detector.js && node --check src/engine.js && node --test tests/detector.test.mjs && node --test tests/model-moves.test.mjs && node --test tests/speed.test.mjs && node --test tests/engine.test.mjs && node --test tests/moving-board.test.mjs && node --test tests/physical-geometry.test.mjs",
+    "check": "node --check src/main.js && node --check src/vision.js && node --check src/detector.js && node --check src/engine.js && node --test tests/detector.test.mjs && node --test tests/model-moves.test.mjs && node --test tests/speed.test.mjs && node --test tests/engine.test.mjs && node --test tests/moving-board.test.mjs && node --test tests/physical-geometry.test.mjs && node --test tests/physical-crop.test.mjs",
     "test:e2e": "node tests/browser.e2e.mjs",
     "test:ai-e2e": "node tests/model-browser.e2e.mjs",
     "test:live-ai-e2e": "node tests/live-model-browser.e2e.mjs",
