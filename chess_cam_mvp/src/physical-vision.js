@@ -1,6 +1,8 @@
 import {inferMovesFromModel,decodedPosition,chooseVisualOrientation} from './model-moves.js';
 import {decodeYolo,mapPhysicalDetections} from './physical-geometry.js';
 import {cropPhysicalBoard} from './physical-crop.js';
+import {scoreChessboardQuad,expandQuadToPieces} from './physical-calibration.js';
+import {inferPhysicalMoves} from './physical-evidence.js';
 export class PhysicalChessVision{
   constructor(camera){
     this.camera=camera;this.worker=null;this.initPromise=null;
@@ -49,7 +51,35 @@ export class PhysicalChessVision{
       modelUrl:(import.meta.env.BASE_URL||'/')+'models/chesscam-physical-corners.onnx',
       rgba,width:image.width,height:image.height},[rgba.buffer]);
     const data=await future;
-    return this.decodeCorners(data,image.width,image.height);
+    const found=this.decodeCorners(data,image.width,image.height);
+    if(!found)throw Error('نموذج نقاط الشبكة لم يعثر على 7×7 تقاطعات كافية. قرّب الرقعة كاملة.');
+    // A perfect-looking green polygon may cover only A-E instead of A-H!
+    // Independently validate the grid against detected REAL piece positions.
+    const crop=cropPhysicalBoard(image,found.corners,{margin:.85,upper:.85});
+    const extraId=++this.request;
+    const extra=new Promise((resolve,reject)=>this.pending.set(extraId,{resolve,reject}));
+    this.worker.postMessage({type:'infer',id:extraId,rgba:crop.rgba,
+      width:crop.width,height:crop.height},[crop.rgba.buffer]);
+    const detection=await extra;
+    const pieceBoxes=decodeYolo(detection.raw,detection.shape,{confidence:.28}).map(d=>({
+      x:(d.cx-detection.offX)/detection.scale+crop.left,
+      y:(d.cy+d.h/2-d.w/3-detection.offY)/detection.scale+crop.top,
+      confidence:d.confidence
+    }));
+    let corners=found.corners;
+    let quality=scoreChessboardQuad(corners,found.rawPoints,pieceBoxes);
+    if(!quality.valid){
+      const expanded=expandQuadToPieces(corners,pieceBoxes);
+      if(expanded){
+        const enlarged=scoreChessboardQuad(expanded,found.rawPoints,pieceBoxes);
+        if(enlarged.valid){corners=expanded;quality=enlarged;}
+      }
+    }
+    if(!quality.valid)
+      throw Error('تم رفض تحديد رقعة ناقصة أو غير صحيحة ('+
+        quality.aligned+' تقاطع مطابق؛ '+Math.round((quality.coverage??0)*100)+
+        '% من القطع داخلها). صوّر جميع الأعمدة A–H أو حدد الزوايا الأربع يدويًا.');
+    return {...found,corners,quality};
   }
   decodeCorners(data,width,height){
     const {raw,shape,scale,offX,offY}=data;
@@ -86,7 +116,7 @@ export class PhysicalChessVision{
     if(q.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||
        p.x<-.25*width||p.y<-.25*height||p.x>1.25*width||p.y>1.25*height))
       return null;
-    return {corners:q,points:pool.length,ms:data.ms};
+    return {corners:q,points:pool.length,rawPoints:pool,ms:data.ms};
   }
   async recognize(game,{force=false}={}){
     if(!this.camera.stream||this.camera.corners.length!==4)
@@ -116,6 +146,16 @@ export class PhysicalChessVision{
     this.worker.postMessage({type:'infer',id,rgba:clipped.rgba,
       width:clipped.width,height:clipped.height},[clipped.rgba.buffer]);
     const output=await prediction;
+    // Do not accept an observation acquired before a large hand-held camera
+    // repositioning: the board pose at capture must still be trackable.
+    if(this.camera.poseValid===false)return {result:{kind:'unstable'},unstable:true,decoded:null};
+    const movement=corners.reduce((sum,p,i)=>{
+      const now=this.camera.corners[i];
+      return sum+(now?Math.hypot(p.x-now.x,p.y-now.y):1000);
+    },0)/4;
+    const diagonal=Math.hypot(corners[0].x-corners[2].x,corners[0].y-corners[2].y);
+    if(movement>Math.max(22,diagonal*.07))
+      return {result:{kind:'unstable'},unstable:true,decoded:null};
     const rawDetections=decodeYolo(output.raw,output.shape);
     // Undo 480x288 letterbox before projection to the moving board plane.
     const detections=rawDetections.map(d=>({
@@ -140,7 +180,10 @@ export class PhysicalChessVision{
     const side=manual==='auto'?(this.orientation||this.camera.side):manual;
     if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay();}
     const whiteBottom=side==='w';
-    const result=inferMovesFromModel(game,mapped.probabilities,{whiteBottom});
+    // For physical pieces the YOLO detector can miss tall/occluded items.
+    // Missing detection MUST NOT equal an empty square (the digital CNN
+    // assumes full 64-square classification, which is wrong for real cameras).
+    const result=inferPhysicalMoves(game,mapped.detections,{whiteBottom});
     const decoded=decodedPosition(mapped.probabilities,whiteBottom);
     this.last={result,decoded,time:Date.now(),count:mapped.count,detections:mapped.detections};
     return {result,decoded,count:mapped.count,detections:mapped.detections,
