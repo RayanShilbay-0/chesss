@@ -72,6 +72,9 @@ jobs:
       - name: Verify the default Stockfish 19 Full WASM engine in Chromium
         working-directory: chess_cam_mvp
         run: npm run test:full-engine-e2e
+      - name: Verify LeYOLO physical model and OpenCV moving-board tracking in Chromium
+        working-directory: chess_cam_mvp
+        run: npm run test:physical-e2e
       - name: Save browser failure screenshots
         uses: actions/upload-artifact@v4
         if: always()

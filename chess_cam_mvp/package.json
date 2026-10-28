@@ -13,7 +13,8 @@
     "test:e2e": "node tests/browser.e2e.mjs",
     "test:ai-e2e": "node tests/model-browser.e2e.mjs",
     "test:live-ai-e2e": "node tests/live-model-browser.e2e.mjs",
-    "test:full-engine-e2e": "node tests/full-engine-browser.e2e.mjs"
+    "test:full-engine-e2e": "node tests/full-engine-browser.e2e.mjs",
+    "test:physical-e2e": "node tests/physical-browser.e2e.mjs"
   },
   "dependencies": {
     "chess.js": "1.4.0",
