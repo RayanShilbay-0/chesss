@@ -17,7 +17,7 @@ export class CameraVision {
    this.ctx=canvas.getContext('2d',{willReadFrequently:true});
    this.stream=null;this.calibrating=false;this.corners=[];this.reference=null;
    this.side='w';this.latestFeatures=null;this.lastScan=null;
-   this.arEnabled=true;this.arMove=null;this.frozenFrame=null;
+   this.arEnabled=true;this.arMove=null;this.frozenFrame=null;this.poseValid=true;
    this.occupancyModel=null;this.referenceSetAt=0;this.sourceKind='camera';
    this.stillFrames=0;this.autoRefreshCount=0;this.latestMotion=null;
  }
@@ -130,7 +130,7 @@ export class CameraVision {
          cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();
        }
      }
-     if(!this.calibrating&&this.arEnabled&&this.arMove)this.drawArrow(this.arMove);
+     if(!this.calibrating&&this.poseValid!==false&&this.arEnabled&&this.arMove)this.drawArrow(this.arMove);
    }
    cx.restore();
  }

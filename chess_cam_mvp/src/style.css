@@ -47,3 +47,6 @@
 #vision-performance{font-size:11px;direction:rtl}
 #engine-mode{margin-bottom:14px}
 #auto-board{width:100%}
+
+#tracker-state{font-size:11px;line-height:1.8;min-height:40px}
+#motion-track{accent-color:#86e6a6}

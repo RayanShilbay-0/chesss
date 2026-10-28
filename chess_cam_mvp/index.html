@@ -45,7 +45,8 @@
      <label for="vision-mode">طريقة قراءة الرقعة</label>
      <select id="vision-mode" aria-label="طريقة التعرف على القطع">
        <option value="model" selected>نموذج ذكاء اصطناعي مدرّب (ONNX) — للرقع الإلكترونية</option>
-       <option value="legacy">المقارنة البصرية القديمة — تجريبية للرقع الحقيقية</option>
+       <option value="physical">كاميرا رقعة حقيقية — تتبّع حركة الهاتف (تجريبي)</option>
+       <option value="legacy">مقارنة المربعات القديمة — للكاميرا الثابتة</option>
      </select>
      <div class="scan-indicator" id="ai-vision-state">تحميل النموذج عند بدء المراقبة</div>
      <label class="setting-label" for="scan-speed">سرعة ودقة التعرف</label>
@@ -55,6 +56,9 @@
        <option value="careful">تدقيق أعلى — فحصان بإيقاع أبطأ</option>
      </select>
      <div class="scan-timestamp" id="vision-performance">تجهيز قياس سرعة CNN…</div>
+     <div class="toggle-line"><label for="motion-track">تتبّع الرقعة عندما يتحرك الهاتف (OpenCV AR)</label>
+       <input type="checkbox" id="motion-track" checked /></div>
+     <div class="scan-indicator" id="tracker-state">تتبّع المنظور متوقف لحين تشغيل الكاميرا</div>
      <div class="recovery-panel">
        <strong>فقدت المزامنة؟ اقرأ الوضعية من صورة النموذج</strong>
        <p class="helper">العملية تحتاج موافقتك؛ الصورة وحدها لا تخبرنا بحقوق التبييت أو الأخذ بالتجاوز أو دور اللعب.</p>

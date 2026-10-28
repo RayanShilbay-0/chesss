@@ -4,6 +4,7 @@ import { CameraVision } from './vision.js';
 import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
+import { MovingBoardTracker } from './moving-board-tracker.js';
 
 const $=id=>document.getElementById(id);
 const game=new Chess();
@@ -20,6 +21,40 @@ const sideLabel=s=>s==='w'?'الأبيض':'الأسود';
 const vision=new CameraVision($('camera'),$('camera-overlay'),$('video-stage'),(message)=>$('vision-message').textContent=message);
 const engine=new ChessEngine(engineEvent);
 const trainedVision=new TrainedChessVision(vision);
+const boardTracker=new MovingBoardTracker(vision);
+let trackingLoop=null,trackingLast=0,trackingPreparing=false;
+const physicalMode=()=>$('vision-mode').value==='physical';
+function trackingWanted(){
+  return !!vision.stream&&vision.sourceKind==='camera'&&
+    $('motion-track').checked&&(physicalMode()||$('vision-mode').value==='legacy');
+}
+async function enableMotionTracking(){
+  if(!trackingWanted()){boardTracker.stop();vision.poseValid=true;return;}
+  if(trackingPreparing||boardTracker.active)return;
+  trackingPreparing=true;
+  $('tracker-state').textContent='تحميل OpenCV.js وتتبع الرقعة…';
+  try{
+    await boardTracker.start();
+    boardTracker.reset();vision.poseValid=true;
+    $('tracker-state').textContent='جاهز لتتبّع الرقعة. حدد زواياها ثم احفظ الوضع.';
+  }catch(e){
+    $('tracker-state').textContent='لم يعمل التتبع: '+String(e.message)+'. استخدم كاميرا ثابتة أو جرّب إعادة فتح الصفحة.';
+    $('motion-track').checked=false;vision.poseValid=true;
+  }finally{trackingPreparing=false;}
+}
+function trackCameraPose(){
+  if(!trackingWanted()||!boardTracker.active||!vision.corners.length||vision.calibrating||document.hidden)return;
+  try{
+    const result=boardTracker.observe(vision.frame());
+    vision.poseValid=result.state==='tracking';
+    if(result.state==='lost'){
+      $('tracker-state').textContent='فقدت معالم الرقعة ('+result.inliers+' نقاط). حافظ عليها داخل الكاميرا؛ أوقفنا السهم لتجنب موضع خاطئ.';
+    }else if(result.state==='tracking'){
+      $('tracker-state').textContent='تتبّع رقعة متحركة · '+result.inliers+' معالم متطابقة';
+    }else $('tracker-state').textContent='معايرة متتبّع الرقعة…';
+    vision.drawOverlay();
+  }catch(e){vision.poseValid=false;$('tracker-state').textContent='مشكلة تتبع: '+String(e.message);}
+}
 let mlBusy=false,mlLastAt=0,mlCandidate='',mlAgreement=0,mlScanCount=0;
 let frameVersion=0;
 const profile=()=>profileSettings($('scan-speed').value);
@@ -357,8 +392,8 @@ function readCamera(silent=false){
 $('start-camera').addEventListener('click',async()=>{
   const btn=$('start-camera');btn.disabled=true;
   try{
-    if(vision.stream){$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;warningNoSync=false;lastReadAt=0;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
-    else {await vision.start();resetModelTracking();if(modelMode())trainedVision.warmUp();}
+    if(vision.stream){boardTracker.stop();vision.poseValid=true;$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;warningNoSync=false;lastReadAt=0;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
+    else {await vision.start();resetModelTracking();if(modelMode())trainedVision.warmUp();void enableMotionTracking();}
   }catch(err){$('vision-message').textContent='تعذر تشغيل الكاميرا: '+String(err.message);}
   finally{btn.disabled=false;setCameraButtons();}
 });
@@ -367,12 +402,12 @@ $('start-screen').addEventListener('click',async()=>{
   btn.disabled=true;
   try{
     if(vision.stream&&vision.sourceKind==='screen'){
-      vision.stop();
+      boardTracker.stop();vision.stop();
       autoScan=false;warningNoSync=false;lastReadAt=0;
       hideSuggestion();
       $('vision-message').textContent='تم إيقاف مشاركة نافذة الشطرنج.';
     }else{
-      await vision.startScreen();resetModelTracking();if(modelMode())trainedVision.warmUp();
+      boardTracker.stop();await vision.startScreen();resetModelTracking();if(modelMode())trainedVision.warmUp();
       autoScan=false;warningNoSync=false;lastReadAt=0;
       hideSuggestion();
       $('vision-message').textContent='تم التقاط نافذة الكمبيوتر. حدّد زوايا الرقعة الظاهرة في الفيديو واحفظ الوضع قبل النقلات.';
@@ -382,17 +417,19 @@ $('start-screen').addEventListener('click',async()=>{
   }finally{btn.disabled=false;setCameraButtons();}
 });
 $('calibrate').addEventListener('click',()=>{
-  try{vision.beginCalibration();autoScan=false;$('auto-scan').checked=false;hideSuggestion();setCameraButtons();}catch(e){$('vision-message').textContent=e.message;}
+  try{boardTracker.reset();vision.poseValid=true;vision.beginCalibration();autoScan=false;$('auto-scan').checked=false;hideSuggestion();setCameraButtons();}catch(e){$('vision-message').textContent=e.message;}
 });
 $('camera-overlay').addEventListener('click',e=>{
   if(!vision.calibrating)return;
   const r=e.currentTarget.getBoundingClientRect();
   vision.tap((e.clientX-r.left)*vision.canvas.width/r.width,(e.clientY-r.top)*vision.canvas.height/r.height);
+  if(vision.corners.length===4&&boardTracker.active)boardTracker.reset();
   setCameraButtons();
 });
 $('baseline').addEventListener('click',()=>{
   try{
     const model=vision.saveReference(game);hideSuggestion();
+    if(boardTracker.active)boardTracker.reset();
     stableHits=0;stableKey='';lastScanStatus='';
     autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
     unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
@@ -445,7 +482,7 @@ $('auto-board').addEventListener('click',async()=>{
   finally{btn.disabled=!vision.stream;setCameraButtons();}
 });
 $('vision-mode').addEventListener('change',()=>{
-  resetModelTracking();hideSuggestion();
+  void enableMotionTracking();resetModelTracking();hideSuggestion();
   warningNoSync=false;mlScanCount=0;
   if(modelMode()){trainedVision.warmUp();$('auto-accept').checked=true;}
   setCameraButtons();
@@ -474,6 +511,10 @@ $('auto-scan').addEventListener('change',e=>{
   setCameraButtons();
 });
 $('ar-overlay').addEventListener('change',e=>vision.setArEnabled(e.target.checked));
+$('motion-track').addEventListener('change',()=>{
+  if($('motion-track').checked)void enableMotionTracking();
+  else {boardTracker.stop();vision.poseValid=true;vision.drawOverlay();}
+});
 $('expand-video').addEventListener('click',()=>{
   const expanded=$('video-stage').classList.toggle('expanded');
   $('expand-video').textContent=expanded?'تصغير الفيديو':'تكبير الفيديو';
@@ -558,5 +599,14 @@ autoInterval=setInterval(()=>{
   }
   setCameraButtons();
 },170);
-window.addEventListener('pagehide',()=>{vision.stop();trainedVision.close();engine.close();if(autoInterval)clearInterval(autoInterval);});
+trackingLoop=setInterval(()=>{
+  if(Date.now()-trackingLast>180&&trackingWanted()&&!trackingPreparing){
+    trackingLast=Date.now();trackCameraPose();
+  }
+},130);
+window.addEventListener('pagehide',()=>{
+  boardTracker.stop();if(trackingLoop)clearInterval(trackingLoop);
+  vision.stop();trainedVision.close();engine.close();
+  if(autoInterval)clearInterval(autoInterval);
+});
 renderBoard();setCameraButtons();resetAnalysis();engine.init();engine.analyze(game.fen());
