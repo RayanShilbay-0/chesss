@@ -165,7 +165,7 @@ export class TrainedChessVision {
       }
     }else this.orientation={side,verified:true};
     this.camera.side=side;
-    this.camera.drawOverlay();
+    this.camera.drawOverlay?.();
     const whiteBottom=side!=='b';
     const result=inferMovesFromModel(game,probabilities,{whiteBottom});
     const decoded=decodedPosition(probabilities,whiteBottom);
