@@ -1,7 +1,7 @@
 import {chromium} from 'playwright';
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
-const port=4190,base='http://127.0.0.1:'+port;
+const port=4178,base='http://127.0.0.1:'+port;
 const proc=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port)],{
  cwd:process.cwd(),stdio:['ignore','pipe','pipe']
 });
