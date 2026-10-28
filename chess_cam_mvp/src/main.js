@@ -4,7 +4,7 @@ import { CameraVision } from './vision.js';
 import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
-import { MovingBoardTracker } from './moving-board-tracker.js';
+import { MovingBoardTracker,poseIsValid } from './moving-board-tracker.js';
 import { PhysicalChessVision } from './physical-vision.js';
 
 const $=id=>document.getElementById(id);
@@ -24,7 +24,7 @@ const engine=new ChessEngine(engineEvent);
 const trainedVision=new TrainedChessVision(vision);
 const boardTracker=new MovingBoardTracker(vision);
 const physicalVision=new PhysicalChessVision(vision);
-let trackingLoop=null,trackingLast=0,trackingPreparing=false;
+let trackingLoop=null,trackingLast=0,trackingPreparing=false,physicalRecovering=false,lastPhysicalRecover=0;
 const physicalMode=()=>$('vision-mode').value==='physical';
 function trackingWanted(){
   return !!vision.stream&&vision.sourceKind==='camera'&&
@@ -44,12 +44,37 @@ async function enableMotionTracking(){
     $('motion-track').checked=false;vision.poseValid=true;
   }finally{trackingPreparing=false;}
 }
+async function recoverPhysicalCorners({manual=false}={}){
+  if(physicalRecovering||!physicalMode()||!vision.stream||vision.sourceKind!=='camera')return false;
+  if(!manual&&Date.now()-lastPhysicalRecover<5000)return false;
+  physicalRecovering=true;lastPhysicalRecover=Date.now();
+  if(manual)$('tracker-state').textContent='البحث التلقائي عن مربعات الرقعة الحقيقية…';
+  try{
+    const found=await physicalVision.detectBoardCorners();
+    if(!found)return false;
+    if(!manual&&vision.corners.length===4&&!poseIsValid(vision.corners,found.corners,
+      vision.canvas.width,vision.canvas.height))return false;
+    // Preserve the chess square order. The four corners follow the camera
+    // image, while color-facing orientation is inferred independently.
+    vision.corners=found.corners;
+    vision.poseValid=true;vision.drawOverlay();
+    resetModelTracking();
+    if(boardTracker.active)boardTracker.reset();
+    $('tracker-state').textContent='تمت استعادة الرقعة تلقائيًا من '+found.points+
+      ' نقطة داخلية؛ تتبع المنظور عاد للعمل';
+    return true;
+  }catch(err){
+    if(manual)$('vision-message').textContent='تعذر اكتشاف الرقعة: '+String(err.message);
+    return false;
+  }finally{physicalRecovering=false;}
+}
 function trackCameraPose(){
   if(!trackingWanted()||!boardTracker.active||!vision.corners.length||vision.calibrating||document.hidden)return;
   try{
     const result=boardTracker.observe(vision.frame());
     vision.poseValid=result.state==='tracking';
     if(result.state==='lost'){
+      if(physicalMode()&&boardTracker.retries>=3)void recoverPhysicalCorners();
       $('tracker-state').textContent='فقدت معالم الرقعة ('+result.inliers+' نقاط). حافظ عليها داخل الكاميرا؛ أوقفنا السهم لتجنب موضع خاطئ.';
     }else if(result.state==='tracking'){
       $('tracker-state').textContent='تتبّع رقعة متحركة · '+result.inliers+' معالم متطابقة';
@@ -477,6 +502,13 @@ $('auto-board').addEventListener('click',async()=>{
   const btn=$('auto-board');btn.disabled=true;
   try{
     if(!vision.stream)throw new Error('شغّل الكاميرا أو مشاركة النافذة أولًا.');
+    if(physicalMode()){
+      const ok=await recoverPhysicalCorners({manual:true});
+      if(!ok)throw new Error('لم أجد نقاط الشبكة؛ قرّب الرقعة أو حدد الزوايا يدويًا.');
+      vision.reference=null;autoScan=false;hideSuggestion();setCameraButtons();
+      $('vision-message').textContent='تم تحديد الرقعة الحقيقية تلقائيًا باستخدام نموذج نقاط الشبكة؛ احفظ الوضع الحالي بعد ترتيب القطع.';
+      return;
+    }
     $('vision-message').textContent='جارٍ البحث عن رقعة مربعة آليًا…';
     await new Promise(resolve=>requestAnimationFrame(resolve));
     const frame=vision.frame(),gray=rgbaToGray(frame.data,frame.width,frame.height);
