@@ -5,6 +5,7 @@ import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
 import { MovingBoardTracker } from './moving-board-tracker.js';
+import { PhysicalChessVision } from './physical-vision.js';
 
 const $=id=>document.getElementById(id);
 const game=new Chess();
@@ -22,6 +23,7 @@ const vision=new CameraVision($('camera'),$('camera-overlay'),$('video-stage'),(
 const engine=new ChessEngine(engineEvent);
 const trainedVision=new TrainedChessVision(vision);
 const boardTracker=new MovingBoardTracker(vision);
+const physicalVision=new PhysicalChessVision(vision);
 let trackingLoop=null,trackingLast=0,trackingPreparing=false;
 const physicalMode=()=>$('vision-mode').value==='physical';
 function trackingWanted(){
@@ -62,7 +64,7 @@ let mlLastResult=null,mlLastPrediction=null;
 const modelMode=()=>$('vision-mode').value==='model';
 function resetModelTracking(){
   frameVersion++;mlCandidate='';mlAgreement=0;mlLastResult=null;mlLastPrediction=null;mlLastAt=0;
-  trainedVision.resetTracking();
+  trainedVision.resetTracking();physicalVision.reset();
 }
 
 
@@ -219,12 +221,12 @@ function setCameraButtons(){
   state.classList.toggle('attention',!!(pending||warningNoSync||stale));
   $('auto-scan').checked=monitoring;
   $('camera-orientation').textContent='اتجاه الكاميرا: '+(vision.side==='w'?'الأبيض أسفل':'الأسود أسفل');
-  $('ai-vision-state').textContent=modelMode()?
+  $('ai-vision-state').textContent=(modelMode()||physicalMode())?
     (mlBusy?'النموذج يحلل الصورة…':mlLastResult?
       'CNN | دقة متوسطة: '+Math.round((mlLastResult.confidence||mlLastPrediction?.meanConfidence||0)*100)+'% | '+mlScanCount+' فحص':'النموذج المدرب جاهز للتحميل عند حفظ البداية'):
     'الوضع التجريبي القديم: اكتشاف تغيّر المربعات';
   $('ai-vision-state').classList.toggle('scanning',!!(modelMode()&&monitoring&&!mlBusy));
-  $('vision-performance').textContent=modelMode()?
+  $('vision-performance').textContent=(modelMode()||physicalMode())?
     (trainedVision.stats.total?'قراءة '+trainedVision.stats.total+' مللي ثانية · ONNX '+
       trainedVision.stats.inference+' مللي ثانية · تخطّي '+trainedVision.skipped+
       ' صور ساكنة · '+trainedVision.backend:
@@ -281,18 +283,29 @@ async function readTrainedCamera({manual=false}={}){
   const corners=vision.corners.map(p=>p.x+','+p.y).join(';');
   $('ai-vision-state').textContent='النموذج يفحص الفيديو في الخلفية…';
   try{
-    const {result,decoded,skipped,stats}=await trainedVision.recognize(game,{
+    const {result,decoded,skipped,stats,unstable,count}=physicalMode()?
+      await physicalVision.recognize(game,{force:true}):await trainedVision.recognize(game,{
       force:manual||!!mlCandidate
     });
     // Discard any old AI output after reset, stream change or a new position.
-    if(!modelMode()||vision.stream!==stream||version!==frameVersion||
-      game.fen()!==expectedFen||vision.corners.map(p=>p.x+','+p.y).join(';')!==corners)return;
+    if(!(modelMode()||physicalMode())||vision.stream!==stream||version!==frameVersion||
+      game.fen()!==expectedFen||
+      (!physicalMode()&&vision.corners.map(p=>p.x+','+p.y).join(';')!==corners))return;
+    if(unstable||(physicalMode()&&vision.poseValid===false)){
+      mlCandidate='';mlAgreement=0;
+      $('vision-message').textContent='الرقعة تتحرك بسرعة أو تغطي اليد القطع. ننتظر تتبعًا واضحًا قبل اعتماد الحركة.';
+      return;
+    }
     lastReadAt=Date.now();
     if(skipped){
       if(manual)$('vision-message').textContent='الوضعية لم تتغير بحسب الفحص البصري السريع.';
       return;
     }
-    mlScanCount++;mlLastPrediction=decoded;mlLastResult=result;
+    mlScanCount++;if(decoded)mlLastPrediction=decoded;mlLastResult=result;
+    if(physicalMode() && count!==undefined){
+      $('ai-vision-state').textContent='LeYOLO · '+count+' قطعة مرصودة · '+
+        (stats?.inference??'—')+' مللي ثانية';
+    }
     if(result.kind==='move'){
       if(result.key===mlCandidate)mlAgreement++;else{mlCandidate=result.key;mlAgreement=1;}
       const settings=profile();
@@ -393,7 +406,7 @@ $('start-camera').addEventListener('click',async()=>{
   const btn=$('start-camera');btn.disabled=true;
   try{
     if(vision.stream){boardTracker.stop();vision.poseValid=true;$('video-stage').classList.remove('expanded');document.body.classList.remove('camera-expanded');$('expand-video').textContent='تكبير الفيديو';vision.stop();autoScan=false;warningNoSync=false;lastReadAt=0;$('auto-scan').checked=false;hideSuggestion();$('vision-message').textContent='الكاميرا متوقفة.';}
-    else {await vision.start();resetModelTracking();if(modelMode())trainedVision.warmUp();void enableMotionTracking();}
+    else {await vision.start();resetModelTracking();if(modelMode())trainedVision.warmUp();else if(physicalMode())physicalVision.warmUp();void enableMotionTracking();}
   }catch(err){$('vision-message').textContent='تعذر تشغيل الكاميرا: '+String(err.message);}
   finally{btn.disabled=false;setCameraButtons();}
 });
@@ -407,7 +420,7 @@ $('start-screen').addEventListener('click',async()=>{
       hideSuggestion();
       $('vision-message').textContent='تم إيقاف مشاركة نافذة الشطرنج.';
     }else{
-      boardTracker.stop();await vision.startScreen();resetModelTracking();if(modelMode())trainedVision.warmUp();
+      boardTracker.stop();await vision.startScreen();resetModelTracking();if(modelMode())trainedVision.warmUp();else if(physicalMode())physicalVision.warmUp();
       autoScan=false;warningNoSync=false;lastReadAt=0;
       hideSuggestion();
       $('vision-message').textContent='تم التقاط نافذة الكمبيوتر. حدّد زوايا الرقعة الظاهرة في الفيديو واحفظ الوضع قبل النقلات.';
@@ -433,16 +446,17 @@ $('baseline').addEventListener('click',()=>{
     stableHits=0;stableKey='';lastScanStatus='';
     autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
     unmatchedSince=0;lastReadAt=0;lastRecognizedAt=0;
-    resetModelTracking();if(modelMode())trainedVision.warmUp();
+    resetModelTracking();if(modelMode())trainedVision.warmUp();else if(physicalMode())physicalVision.warmUp();
     setCameraButtons();
     $('vision-message').textContent=modelMode()?
-      'تم تشغيل نموذج فحص القطع المدرب. ستبدأ قراءة نقلات الطرفين آليًا بعد تحميل ONNX. اختر صورة رقمية واضحة للرقعة؛ النموذج ليس مدربًا على القطع الخشبية.':
+      'تم تشغيل Fenshot للرقعة الإلكترونية.':
+      physicalMode()?'تشغيل LeYOLO للرقعة الحقيقية. أبقِ الرقعة داخل الصورة وانتظر ثبات التتبع قبل النقلات.':
       warningNoSync?'توجد مشكلة توافق؛ صحح الرقعة ثم أعد المعايرة.':
       'تم حفظ مرجع الحركة التقليدي.';
   }catch(e){$('vision-message').textContent=e.message;}
 });
 $('detect').addEventListener('click',()=>{
-  if(modelMode())void readTrainedCamera({manual:true});
+  if(modelMode()||physicalMode())void readTrainedCamera({manual:true});
   else readCamera(false);
 });
 $('scan-speed').addEventListener('change',()=>{
@@ -485,10 +499,13 @@ $('vision-mode').addEventListener('change',()=>{
   void enableMotionTracking();resetModelTracking();hideSuggestion();
   warningNoSync=false;mlScanCount=0;
   if(modelMode()){trainedVision.warmUp();$('auto-accept').checked=true;}
+  else if(physicalMode()){physicalVision.warmUp();$('auto-accept').checked=false;}
   setCameraButtons();
   $('vision-message').textContent=modelMode()?
-    'تم اختيار نموذج ONNX المدرب على رقع الشطرنج الإلكترونية. يمكنك معايرة الرقعة وحفظ الوضع؛ لن يعيد المراقب حفظ وضعية خاطئة.':
-    'الوضع التقليدي للكاميرا الحقيقية لا يستخدم النموذج المدرّب؛ دقته أقل.';
+    'قراءة الرقع الإلكترونية بواسطة Fenshot ONNX.':
+    physicalMode()?'الرقعة الحقيقية: LeYOLO + OpenCV لتتبع حركة الهاتف. بعد المعايرة احفظ الوضع وراجع قراءات النقلات.':
+    'الوضع التقليدي القديم؛ دقته أقل.';
+  void enableMotionTracking();
 });
 $('ml-recover').addEventListener('click',()=>{
   try{
@@ -564,7 +581,7 @@ $('resync').addEventListener('click',()=>{
     hideSuggestion();
     const model=vision.saveReference(game);
     autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
-    resetModelTracking();if(modelMode())trainedVision.warmUp();unmatchedSince=0;
+    resetModelTracking();if(modelMode())trainedVision.warmUp();else if(physicalMode())physicalVision.warmUp();unmatchedSince=0;
     lastReadAt=0;lastScanStatus='';stableHits=0;stableKey='';
     lastRecognizedAt=Date.now();
     setCameraButtons();beginAnalysis();
@@ -593,8 +610,8 @@ document.addEventListener('visibilitychange',()=>{
 });
 autoInterval=setInterval(()=>{
   if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen')){
-    if(modelMode()){
-      if(!mlBusy&&Date.now()-mlLastAt>=profile().interval)void readTrainedCamera();
+    if(modelMode()||physicalMode()){
+      if(!mlBusy&&Date.now()-mlLastAt>=Math.max(profile().interval,physicalMode()?800:0))void readTrainedCamera();
     }else readCamera(true);
   }
   setCameraButtons();
@@ -606,7 +623,7 @@ trackingLoop=setInterval(()=>{
 },130);
 window.addEventListener('pagehide',()=>{
   boardTracker.stop();if(trackingLoop)clearInterval(trackingLoop);
-  vision.stop();trainedVision.close();engine.close();
+  vision.stop();trainedVision.close();physicalVision.close();engine.close();
   if(autoInterval)clearInterval(autoInterval);
 });
 renderBoard();setCameraButtons();resetAnalysis();engine.init();engine.analyze(game.fen());
