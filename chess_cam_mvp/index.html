@@ -45,7 +45,7 @@
      <label for="vision-mode">طريقة قراءة الرقعة</label>
      <select id="vision-mode" aria-label="طريقة التعرف على القطع">
        <option value="model" selected>نموذج ذكاء اصطناعي مدرّب (ONNX) — للرقع الإلكترونية</option>
-       <option value="physical">كاميرا رقعة حقيقية — تتبّع حركة الهاتف (تجريبي)</option>
+       <option value="physical">الواقع المعزز: رقعة حقيقية + LeYOLO وOpenCV</option>
        <option value="legacy">مقارنة المربعات القديمة — للكاميرا الثابتة</option>
      </select>
      <div class="scan-indicator" id="ai-vision-state">تحميل النموذج عند بدء المراقبة</div>
@@ -82,6 +82,7 @@
      <div class="toggle-line"><label for="ar-overlay">إظهار سهم أفضل نقلة فوق الفيديو (AR)</label><input type="checkbox" id="ar-overlay" checked /></div>
      <div class="toggle-line"><label for="auto-accept">اعتماد النقلات المؤكدة تلقائيًا (تجريبي)</label><input type="checkbox" id="auto-accept" disabled /></div>
      <div class="camera-actions camera-expand-actions"><button class="secondary" id="expand-video" disabled>تكبير الفيديو</button></div>
+     <p class="helper">الوضع الحقيقي يستخدم نموذج LeYOLO وOpenCV إضافيين، ويحتاج تنزيلًا أوليًا أكبر. التتبع بالهاتف المحمول ما زال تجريبيًا ولا يضمن قراءة كل القطع من جميع الزوايا. يوقف السهم عندما تفقد معالم الرقعة.</p>
      <p class="helper">يمكن للمراقبة الذكية تخطي الصورة الساكنة، واستخدام Web Worker للتصنيف دون تجميد الواجهة. وضع Turbo أسرع لكنه يحمل احتمال خطأ أعلى إذا كانت الصورة غير مستقرة؛ وضع متوازن أفضل للاختبار.</p>
      <p class="helper">نموذج Fenshot المرخّص MIT يقرأ 64 مربعًا بنموذج CNN مدرّب محليًا داخل متصفحك. لا ترفع صورك إلى خادم. نموذج الرقعة الإلكترونية ليس نموذجًا للتعرف على الخشب والقطع ثلاثية الأبعاد.</p>
      <p class="helper">يتجدد المرجع تلقائيًا كل بضع ثوانٍ <strong>فقط عند التحقق أن وضعية القطع لم تتغير</strong>. لا يمكن للنظام أن يمحو نقلة لم يقرأها لمجرد مرور الوقت. أُسرع الفحص إلى كل 0.7 ثانية تقريبًا أثناء نشاط الصفحة.</p>

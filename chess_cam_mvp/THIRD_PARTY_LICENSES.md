@@ -22,3 +22,13 @@ It does not upload camera frames to a third-party inference service.
 
 The default chess-piece CNN is trained for 2D online boards, not a universal
 physical chessboard detector. Full engine downloads are optional.
+
+- **CameraChessWeb LeYOLO physical pieces** (AGPL-3.0):
+  https://github.com/Pbatch/CameraChessWeb
+  Model mirrored at https://github.com/samegardner/chess-vision/blob/9517ce421f3896ef3e922ee2bc10f306ba32a761/models/chesscam_pieces.onnx
+  The integrated physical-detection feature is subject to AGPL-3.0
+  source-disclosure and redistribution obligations. Sources and updates
+  remain publicly available in the ChessCam repository.
+- **OpenCV.js**, OpenCV/TecStark (Apache-2.0):
+  https://github.com/TechStark/opencv-js
+  Sparse pyramidal Lucas–Kanade tracking and RANSAC homography.

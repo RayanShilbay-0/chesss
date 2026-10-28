@@ -45,6 +45,22 @@ export class PhysicalChessVision{
       return {result:{kind:'unstable'},decoded:null,unstable:true};
     await this.setup();
     const frame=this.camera.frame(),id=++this.request;
+    // Keep a frame-local board pose: the phone can move while ONNX infers.
+    const corners=this.camera.corners.map(p=>({...p}));
+    const point=(u,v)=>{
+      const [a,b,c,d]=corners;
+      const dx1=b.x-c.x,dx2=d.x-c.x,dx3=a.x-b.x+c.x-d.x;
+      const dy1=b.y-c.y,dy2=d.y-c.y,dy3=a.y-b.y+c.y-d.y;
+      const det=dx1*dy2-dx2*dy1;
+      if(Math.abs(det)<1e-7)return {
+        x:a.x*(1-u)*(1-v)+b.x*u*(1-v)+c.x*u*v+d.x*(1-u)*v,
+        y:a.y*(1-u)*(1-v)+b.y*u*(1-v)+c.y*u*v+d.y*(1-u)*v
+      };
+      const g=(dx3*dy2-dx2*dy3)/det,h=(dx1*dy3-dx3*dy1)/det;
+      const z=g*u+h*v+1;
+      return {x:((b.x-a.x+g*b.x)*u+(d.x-a.x+h*d.x)*v+a.x)/z,
+        y:((b.y-a.y+g*b.y)*u+(d.y-a.y+h*d.y)*v+a.y)/z};
+    };
     const prediction=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject}));
     const copied=new Uint8ClampedArray(frame.data);
     this.worker.postMessage({type:'infer',id,rgba:copied,
@@ -57,7 +73,7 @@ export class PhysicalChessVision{
       cy:(d.cy-output.offY)/output.scale,
       w:d.w/output.scale,h:d.h/output.scale
     }));
-    const mapped=mapPhysicalDetections(detections,(u,v)=>this.camera.point(u,v));
+    const mapped=mapPhysicalDetections(detections,point);
     if(mapped.count<7||mapped.count>35)
       return {result:{kind:'unreliable',reason:'insufficient-physical-pieces'},
         decoded:null,detections:mapped.detections,count:mapped.count,
