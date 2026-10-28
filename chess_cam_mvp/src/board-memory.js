@@ -14,7 +14,7 @@
 //  * only features on the board plane (board + frame) are mapped, so the
 //    table background cannot produce a confident but wrong pose.
 // Losing the pose never touches the chess game state.
-import {applyH,invertH,solveHomography,multiplyH as multiply} from './homography.js';
+import {applyH,invertH,solveHomography,multiplyH as multiply,boardToImageH,quadFromH} from './homography.js';
 
 const del=(...mats)=>mats.forEach(m=>{try{m?.delete?.()}catch{}});
 const MARGIN=.11; // frame border around the 8x8 squares, in board units
@@ -322,3 +322,48 @@ export class BoardMemory{
   }
 }
 export {MARGIN as BOARD_FRAME_MARGIN,solveHomography};
+// Adapter with the MovingBoardTracker interface used by main.js. It owns a
+// BoardMemory and keeps camera.corners (TL,TR,BR,BL, possibly off-screen)
+// in sync with the tracked homography for the rest of the app.
+export class CameraBoardMemory{
+  constructor(camera,options={}){
+    this.camera=camera;this.options=options;this.memory=null;this.active=false;
+    this.state='idle';this.inliers=0;this.retries=0;this.written='';this.last=null;
+  }
+  async start(loader){
+    if(this.active)return;
+    const cv=await loader();
+    if(!cv?.ORB||!cv?.calcOpticalFlowPyrLK||!cv?.findHomography)
+      throw Error('This OpenCV.js build lacks ORB, optical flow or homography.');
+    this.memory=new BoardMemory(cv,this.options);this.active=true;this.reset();
+  }
+  stop(){this.memory?.clear();this.active=false;this.state='idle';}
+  // New board definition (manual corners, saved baseline): rebuild the map.
+  reset(){this.memory?.clear();this.state='initializing';this.retries=0;this.written='';}
+  signature(){return this.camera.corners.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(';');}
+  // Independent lattice detection while tracking: vote, never overwrite.
+  verify(H){return this.memory?.observeBoardDetection(H)??{accepted:false};}
+  acquireFromCorners(frame){
+    const H=boardToImageH(this.camera.corners);
+    if(!H)return {state:'lost',inliers:0};
+    this.last=this.memory.acquire(frame,H);
+    this.written=this.signature();
+    return this.last;
+  }
+  observe(frame){
+    if(!this.active||!this.memory||this.camera.calibrating||this.camera.corners.length!==4)
+      return {state:this.state};
+    // Corners changed outside the tracker (manual tap or recovery): re-acquire.
+    if(!this.memory.H&&!this.memory.mapped||this.signature()!==this.written)
+      this.last=this.acquireFromCorners(frame);
+    else this.last=this.memory.track(frame);
+    const s=this.last;
+    this.state=s.poseValid?'tracking':(s.state==='lost'?'lost':s.state);
+    this.inliers=s.inliers||0;this.retries=s.poseValid?0:s.lostFrames||this.retries+1;
+    if(s.poseValid){
+      this.camera.corners=quadFromH(s.H);this.written=this.signature();
+      this.camera.boardH=s.H;
+    }else this.camera.boardH=null;
+    return {state:this.state,inliers:this.inliers,visible:s.visible,keyframes:s.keyframes,rms:s.rms};
+  }
+}

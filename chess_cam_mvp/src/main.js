@@ -4,7 +4,8 @@ import { CameraVision } from './vision.js';
 import { TrainedChessVision } from './trained-vision.js';
 import { inferCastling, findChessboardCorners, snapCorners, rgbaToGray } from '@scoriiu/fenshot';
 import { profileSettings } from './vision-speed.js';
-import { MovingBoardTracker,poseIsValid } from './moving-board-tracker.js';
+import { MovingBoardTracker,poseIsValid,loadOpenCV } from './moving-board-tracker.js';
+import { CameraBoardMemory } from './board-memory.js';
 import { PhysicalChessVision } from './physical-vision.js';
 
 const $=id=>document.getElementById(id);
@@ -12,7 +13,7 @@ const game=new Chess();
 let mySide='w',selected=null,pendingMove=null,analyzeLines=[],lastDepth=0,engineAlive=false;
 let lastEngineFen=null,autoScan=false,stableKey='',stableHits=0,autoInterval=null;
 let lastScanStatus='',lastReadAt=0,lastRecognizedAt=0,unmatchedSince=0;
-let warningNoSync=false,pendingSince=0,cameraError='';
+let warningNoSync=false,pendingSince=0,cameraError='',unchangedWhilePending=0;
 let lastAutomaticRefresh=0;
 const glyph={w:{k:'♔',q:'♕',r:'♖',b:'♗',n:'♘',p:'♙'},b:{k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟︎'}};
 const files='abcdefgh';
@@ -22,7 +23,14 @@ const sideLabel=s=>s==='w'?'الأبيض':'الأسود';
 const vision=new CameraVision($('camera'),$('camera-overlay'),$('video-stage'),(message)=>$('vision-message').textContent=message);
 const engine=new ChessEngine(engineEvent);
 const trainedVision=new TrainedChessVision(vision);
-const boardTracker=new MovingBoardTracker(vision);
+const legacyTracker=new MovingBoardTracker(vision);
+// Real boards use the persistent board map (keyframes + relocalization);
+// the legacy pixel mode keeps the original frame-to-frame tracker.
+const memoryTracker=new CameraBoardMemory(vision);
+const boardTracker=new Proxy({},{get(_,key){
+  const t=physicalMode()?memoryTracker:legacyTracker,v=t[key];
+  return typeof v==='function'?v.bind(t):v;
+}});
 const physicalVision=new PhysicalChessVision(vision);
 let trackingLoop=null,trackingLast=0,trackingPreparing=false,physicalRecovering=false,lastPhysicalRecover=0;
 const physicalMode=()=>$('vision-mode').value==='physical';
@@ -36,7 +44,7 @@ async function enableMotionTracking(){
   trackingPreparing=true;
   $('tracker-state').textContent='تحميل OpenCV.js وتتبع الرقعة…';
   try{
-    await boardTracker.start();
+    await boardTracker.start(loadOpenCV);
     boardTracker.reset();vision.poseValid=true;
     $('tracker-state').textContent='جاهز لتتبّع الرقعة. حدد زواياها ثم احفظ الوضع.';
   }catch(e){
@@ -52,6 +60,14 @@ async function recoverPhysicalCorners({manual=false}={}){
   try{
     const found=await physicalVision.detectBoardCorners(game);
     if(!found)return false;
+    // While the board map still tracks, a new detection only VOTES on the
+    // map's square offset; it never replaces a working pose.
+    if(physicalMode()&&memoryTracker.state==='tracking'&&found.H){
+      const vote=memoryTracker.verify(found.H);
+      $('tracker-state').textContent=vote.accepted?'تم تصحيح موضع الشبكة بمقدار '+vote.shift.join('،')+' مربع':
+        'تحقق من الشبكة · الخريطة متطابقة';
+      return true;
+    }
     if(!manual&&vision.corners.length===4&&!poseIsValid(vision.corners,found.corners,
       vision.canvas.width,vision.canvas.height)&&found.quality?.aligned<30)return false;
     // A fully verified new 7x7 grid can reacquire the board even after the
@@ -80,7 +96,10 @@ function trackCameraPose(){
       if(physicalMode()&&boardTracker.retries>=3)void recoverPhysicalCorners();
       $('tracker-state').textContent='فقدت معالم الرقعة ('+result.inliers+' نقاط). حافظ عليها داخل الكاميرا؛ أوقفنا السهم لتجنب موضع خاطئ.';
     }else if(result.state==='tracking'){
-      $('tracker-state').textContent='تتبّع رقعة متحركة · '+result.inliers+' معالم متطابقة';
+      $('tracker-state').textContent='تتبّع رقعة متحركة · '+result.inliers+' معالم متطابقة'+
+        (result.visible!==undefined?' · '+Math.round(result.visible*100)+'% من الرقعة ظاهر · '+result.keyframes+' لقطات مرجعية':'');
+      // Periodic independent verification of the mapped square offset.
+      if(physicalMode()&&Date.now()-lastPhysicalRecover>4000)void recoverPhysicalCorners();
     }else $('tracker-state').textContent='معايرة متتبّع الرقعة…';
     vision.drawOverlay();
   }catch(e){vision.poseValid=false;$('tracker-state').textContent='مشكلة تتبع: '+String(e.message);}
@@ -316,7 +335,9 @@ function playCameraSequence(sequence){
   }
 }
 async function readTrainedCamera({manual=false}={}){
-  if(mlBusy||pendingMove||!vision.stream||vision.corners.length!==4||vision.calibrating||game.isGameOver())return;
+  // A pending suggestion used to stop physical scanning entirely, so after
+  // one detected move nothing more was recognized until it was tapped.
+  if(mlBusy||(pendingMove&&!physicalMode())||!vision.stream||vision.corners.length!==4||vision.calibrating||game.isGameOver())return;
   mlBusy=true;mlLastAt=Date.now();
   const expectedFen=game.fen(),stream=vision.stream,version=frameVersion;
   const corners=vision.corners.map(p=>p.x+','+p.y).join(';');
@@ -330,6 +351,11 @@ async function readTrainedCamera({manual=false}={}){
     if(!(modelMode()||physicalMode())||vision.stream!==stream||version!==frameVersion||
       game.fen()!==expectedFen||
       (!physicalMode()&&vision.corners.map(p=>p.x+','+p.y).join(';')!==corners))return;
+    if(physicalMode()&&result?.occluded){
+      mlCandidate='';mlAgreement=0;
+      $('vision-message').textContent='يد أو جسم يغطي جزءًا من الرقعة؛ ننتظر حتى تبتعد قبل اعتماد أي نقلة.';
+      return;
+    }
     if(unstable||(physicalMode()&&vision.poseValid===false)){
       mlCandidate='';mlAgreement=0;
       $('vision-message').textContent='الرقعة تتحرك بسرعة أو تغطي اليد القطع. ننتظر تتبعًا واضحًا قبل اعتماد الحركة.';
@@ -358,8 +384,8 @@ async function readTrainedCamera({manual=false}={}){
         mlCandidate='';mlAgreement=0;
         if($('auto-accept').checked){
           playCameraSequence(seq);
-        }else{
-          pendingMove=seq;pendingSince=Date.now();
+        }else if(!pendingMove||pendingMove.map(m=>m.from+m.to).join(' ')!==seq.map(m=>m.from+m.to).join(' ')){
+          pendingMove=seq;pendingSince=Date.now();unchangedWhilePending=0;
           $('suggestion-title').textContent='قراءة نموذج CNN: '+result.key;
           $('suggestion-desc').textContent='راجع النقلات قبل الاعتماد على التحليل';
           $('vision-suggestion').hidden=false;
@@ -370,6 +396,11 @@ async function readTrainedCamera({manual=false}={}){
       const confidence=Math.round((decoded?.meanConfidence||0)*100);
       if(result.kind==='unchanged'){
         warningNoSync=false;
+        // The board keeps matching the verified position: withdraw a stale
+        // (likely phantom) suggestion instead of blocking on it.
+        if(pendingMove&&physicalMode()&&++unchangedWhilePending>=3){
+          hideSuggestion();$('vision-message').textContent='أُلغي الاقتراح: الرقعة ما زالت تطابق الوضعية المؤكدة.';
+        }
         if(manual||mlScanCount%4===0)
           $('vision-message').textContent=physicalMode()?
             'LeYOLO يرى '+(count??physicalVision.last?.count??0)+' قطعة؛ لم تتأكد نقلة جديدة بعد.':
@@ -658,18 +689,23 @@ document.addEventListener('visibilitychange',()=>{
   if(!document.hidden&&vision.stream&&autoScan) $('vision-message').textContent='عادت الكاميرا إلى الواجهة؛ المراقبة تتحقق من الوضعية الآن.';
 });
 autoInterval=setInterval(()=>{
-  if(autoScan&&vision.stream&&vision.reference&&!pendingMove&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen')){
+  if(autoScan&&vision.stream&&vision.reference&&(!pendingMove||physicalMode())&&!vision.calibrating&&(!document.hidden||vision.sourceKind==='screen')){
     if(modelMode()||physicalMode()){
       if(!mlBusy&&Date.now()-mlLastAt>=Math.max(profile().interval,physicalMode()?800:0))void readTrainedCamera();
     }else readCamera(true);
   }
   setCameraButtons();
 },170);
+// Adaptive pose-tracking cadence: up to 20 Hz, but keep the synchronous
+// OpenCV work under ~40% of the main thread so video and UI stay smooth.
+let trackingCost=40;
 trackingLoop=setInterval(()=>{
-  if(Date.now()-trackingLast>180&&trackingWanted()&&!trackingPreparing){
-    trackingLast=Date.now();trackCameraPose();
+  if(Date.now()-trackingLast>Math.max(50,trackingCost*2.5)&&trackingWanted()&&!trackingPreparing){
+    trackingLast=Date.now();
+    const t=performance.now();trackCameraPose();
+    trackingCost=trackingCost*.8+(performance.now()-t)*.2;
   }
-},130);
+},25);
 window.addEventListener('pagehide',()=>{
   boardTracker.stop();if(trackingLoop)clearInterval(trackingLoop);
   vision.stop();trainedVision.close();physicalVision.close();engine.close();

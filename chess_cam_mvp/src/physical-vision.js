@@ -4,14 +4,14 @@ import {detectBoardFromCorners,grayFromRgba} from './board-lattice.js';
 import {applyH} from './homography.js';
 import {cropPhysicalBoard} from './physical-crop.js';
 import {scoreChessboardQuad,expandQuadToPieces} from './physical-calibration.js';
-import {inferPhysicalMoves} from './physical-evidence.js';
-import {physicalOrientation,orientationFromPosition} from './physical-orientation.js';
+import {inferPhysicalMoves,SquareEvidence,observedSquares,OcclusionGuard,OrientationLock} from './physical-evidence.js';
+import {physicalOrientation,orientationFromPosition,tileToBoardIndex} from './physical-orientation.js';
 const boardChars=game=>game.board().flat().map(p=>p?(p.color==='w'?p.type.toUpperCase():p.type):'1');
 export class PhysicalChessVision{
   constructor(camera){
     this.camera=camera;this.worker=null;this.initPromise=null;
     this.pending=new Map();this.request=0;this.last=null;
-    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
+    this.lastTime=0;this.filtered=null;this.lastBoard=null;this.backend='LeYOLO ONNX';this.evidence=new SquareEvidence();this.occlusion=new OcclusionGuard();this.lock=new OrientationLock();this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
   }
   async setup(){
     if(this.initPromise)return this.initPromise;
@@ -39,6 +39,7 @@ export class PhysicalChessVision{
   }
   warmUp(){void this.setup().catch(()=>{});}
   reset(){
+    this.evidence.reset('');this.occlusion.reset();this.lock.reset();
     this.filtered=null;this.lastBoard=null;this.last=null;this.lastTime=0;this.orientation=null;this.pendingOrientation=null;this.orientationHits=0;
   }
   close(){this.worker?.terminate();this.worker=null;this.initPromise=null;
@@ -79,7 +80,7 @@ export class PhysicalChessVision{
         const mapped=mapPhysicalDetections(pieces,point);
         const vote=orientationFromPosition(mapped.detections,position);
         side=vote.side;
-        if(side){this.orientation=side;this.pendingOrientation=null;this.orientationHits=0;}
+        if(side){this.lock.reset();this.lock.update(vote);this.orientation=side;}
       }
       return {corners:lattice.corners,H:lattice.H,points:points.length,side,
         quality:{...lattice.quality,aligned:lattice.quality.inliers,valid:true,method:'lattice'}};
@@ -215,16 +216,31 @@ export class PhysicalChessVision{
     // colour centroids are only a fallback before any position is known.
     const byPosition=orientationFromPosition(mapped.detections,boardChars(game));
     const proposal=byPosition.verified?byPosition:physicalOrientation(mapped.detections);
-    if(manual==='auto'&&proposal.verified){
-      if(this.pendingOrientation===proposal.side)this.orientationHits++;
-      else{this.pendingOrientation=proposal.side;this.orientationHits=1;}
-      if(!this.orientation||this.orientationHits>=3)this.orientation=proposal.side;
-    }
+    if(manual==='auto')this.orientation=this.lock.update(proposal);
     const side=manual==='auto'?(this.orientation||this.camera.side):manual;
     if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay?.();}
     // Real LeYOLO is sparse. Never treat an invisible/occluded piece as an
     // empty square; evaluate only observed pieces against legal game moves.
-    const result=inferPhysicalMoves(game,mapped.detections,{orientation:side});
+    // Squares whose centre is inside this frame (with margin) are 'visible'.
+    const chars=boardChars(game),visible=new Set();
+    for(let tile=0;tile<64;tile++){
+      const r=7-Math.floor(tile/8),c=tile%8,p=point((c+.5)/8,(r+.5)/8);
+      if(p.x>frame.width*.03&&p.y>frame.height*.03&&p.x<frame.width*.97&&p.y<frame.height*.97)
+        visible.add(tileToBoardIndex(tile,side));
+    }
+    // Far fewer pieces than recent scans of this view: likely a hand or arm
+    // over the board. Keep observations, but add no 'vacated' evidence.
+    const occluded=this.occlusion.update(mapped.count).occluded;
+    const observed=observedSquares(mapped.detections,side);
+    this.evidence.add(game.fen(),observed,occluded?new Set():visible);
+    const snap=this.evidence.snapshot();
+    const instant=inferPhysicalMoves(game,mapped.detections,{orientation:side});
+    const temporal=inferPhysicalMoves(game,[],{observed:snap.seen,empty:snap.empty});
+    // Prefer the temporal reading; a single frame may only confirm the same.
+    const result=occluded&&temporal.kind==='move'?{kind:'uncertain',reason:'occluded',best:temporal}:
+      temporal.kind==='move'||instant.kind!=='move'?temporal:
+      {kind:'uncertain',reason:'single-frame-only',best:instant};
+    result.occluded=occluded;result.visibleSquares=visible.size;
     // FEN reconstruction is disabled for real pieces: a missing box does
     // NOT mean an empty square (unlike the digital Fenshot model).
     const decoded=null;

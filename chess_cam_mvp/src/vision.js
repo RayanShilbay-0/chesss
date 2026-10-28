@@ -76,8 +76,15 @@ export class CameraVision {
  }
  frame(){
    if(!this.stream||this.video.readyState<2)throw Error('الكاميرا غير جاهزة.');
-   const c=document.createElement('canvas'); c.width=this.canvas.width;c.height=this.canvas.height;
-   const cx=c.getContext('2d',{willReadFrequently:true});cx.drawImage(this.video,0,0,c.width,c.height);
+   // Reuse one capture canvas: allocating a canvas per frame at 20 Hz
+   // churns memory on iOS Safari.
+   if(!this.captureCanvas)this.captureCanvas=document.createElement('canvas');
+   const c=this.captureCanvas;
+   if(c.width!==this.canvas.width||c.height!==this.canvas.height){
+     c.width=this.canvas.width;c.height=this.canvas.height;this.captureCtx=null;
+   }
+   const cx=this.captureCtx||(this.captureCtx=c.getContext('2d',{willReadFrequently:true}));
+   cx.drawImage(this.video,0,0,c.width,c.height);
    return cx.getImageData(0,0,c.width,c.height);
  }
  beginCalibration(){
