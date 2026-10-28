@@ -11,6 +11,10 @@ export function poseIsValid(before,after,width,height){
       p.x<-.12*width||p.x>1.12*width||p.y<-.12*height||p.y>1.12*height))
     return false;
   const a=quadArea(before),b=quadArea(after);
+  const winding=q=>q.reduce((sum,p,i)=>{
+    const n=q[(i+1)%q.length];return sum+p.x*n.y-n.x*p.y;
+  },0);
+  if(winding(before)*winding(after)<=0)return false;
   if(a<1200||b<1200||b/a<.50||b/a>2.05)return false;
   let sign=0;
   for(let i=0;i<4;i++){
