@@ -2,7 +2,7 @@ import * as ort from 'onnxruntime-web/wasm';
 import urlJs from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs?url';
 import urlWasm from '../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm?url';
 const WIDTH=480,HEIGHT=288;
-let session=null;
+let session=null,cornerSession=null;
 function half(x){
   const float=new Float32Array([x]),bits=new Uint32Array(float.buffer)[0];
   const sign=(bits>>>16)&0x8000,exp=(bits>>>23)&255,frac=bits&0x7fffff;
@@ -50,6 +50,15 @@ self.onmessage=async({data:m})=>{
     ort.env.wasm.numThreads=1;
     session=await ort.InferenceSession.create(m.modelUrl,{executionProviders:['wasm']});
     self.postMessage({type:'ready',inputs:session.inputNames,outputs:session.outputNames});
+  }else if(m.type==='corner-detect'){
+    if(!cornerSession){
+      cornerSession=await ort.InferenceSession.create(m.modelUrl,{executionProviders:['wasm']});
+    }
+    const t=performance.now(),{tensor,scale,offX,offY}=resize(m.rgba,m.width,m.height);
+    const output=await cornerSession.run({images:new ort.Tensor('float16',tensor,[1,3,HEIGHT,WIDTH])});
+    const result=output[cornerSession.outputNames[0]],arr=readOutput(result.data);
+    self.postMessage({type:'result',id:m.id,raw:arr,shape:result.dims,
+      scale,offX,offY,ms:Math.round(performance.now()-t)},[arr.buffer]);
   }else if(m.type==='infer'){
     if(!session)throw Error('physical detector is not loaded');
     const t=performance.now(),{tensor,scale,offX,offY}=resize(m.rgba,m.width,m.height);

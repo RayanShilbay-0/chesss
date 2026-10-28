@@ -38,6 +38,55 @@ export class PhysicalChessVision{
     for(const p of this.pending.values())p.reject(Error('Camera stopped'));
     this.pending.clear();
   }
+  async detectBoardCorners(){
+    if(!this.camera.stream)throw Error('شغّل كاميرا الرقعة الحقيقية أولًا');
+    await this.setup();
+    const image=this.camera.frame(),id=++this.request;
+    const future=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject}));
+    const rgba=new Uint8ClampedArray(image.data);
+    this.worker.postMessage({type:'corner-detect',id,
+      modelUrl:(import.meta.env.BASE_URL||'/')+'models/chesscam-physical-corners.onnx',
+      rgba,width:image.width,height:image.height},[rgba.buffer]);
+    const data=await future;
+    return this.decodeCorners(data,image.width,image.height);
+  }
+  decodeCorners(data,width,height){
+    const {raw,shape,scale,offX,offY}=data;
+    if(shape?.[0]!==1||shape?.[1]!==5)return null;
+    const n=shape[2],points=[];
+    for(let i=0;i<n;i++){
+      const confidence=raw[4*n+i];
+      if(confidence<.35)continue;
+      const x=(raw[i]-offX)/scale,y=(raw[n+i]-offY)/scale;
+      if(x<-20||x>width+20||y<-20||y>height+20)continue;
+      if(points.some(p=>Math.hypot(p.x-x,p.y-y)<8))continue;
+      points.push({x,y,confidence});
+    }
+    if(points.length<15)return null;
+    // Four extreme internal 7x7 chess grid intersections. Extrapolate to
+    // the outer 8x8 corners; optical flow handles the subsequent frames.
+    const ranked=points.filter(p=>p.confidence>=.45);
+    const pool=ranked.length>=12?ranked:points;
+    const tl=pool.reduce((a,b)=>a.x+a.y<b.x+b.y?a:b);
+    const tr=pool.reduce((a,b)=>a.x-a.y>b.x-b.y?a:b);
+    const br=pool.reduce((a,b)=>a.x+a.y>b.x+b.y?a:b);
+    const bl=pool.reduce((a,b)=>a.y-a.x>b.y-b.x?a:b);
+    const span=Math.hypot(tr.x-tl.x,tr.y-tl.y);
+    if(span<70||new Set([tl,tr,br,bl]).size!==4)return null;
+    const expand=(p,horiz,vert)=>({
+      x:p.x+horiz.x/6+vert.x/6,y:p.y+horiz.y/6+vert.y/6
+    });
+    const q=[
+      expand(tl,{x:tl.x-tr.x,y:tl.y-tr.y},{x:tl.x-bl.x,y:tl.y-bl.y}),
+      expand(tr,{x:tr.x-tl.x,y:tr.y-tl.y},{x:tr.x-br.x,y:tr.y-br.y}),
+      expand(br,{x:br.x-bl.x,y:br.y-bl.y},{x:br.x-tr.x,y:br.y-tr.y}),
+      expand(bl,{x:bl.x-br.x,y:bl.y-br.y},{x:bl.x-tl.x,y:bl.y-tl.y})
+    ];
+    if(q.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)||
+       p.x<-.25*width||p.y<-.25*height||p.x>1.25*width||p.y>1.25*height))
+      return null;
+    return {corners:q,points:pool.length,ms:data.ms};
+  }
   async recognize(game,{force=false}={}){
     if(!this.camera.stream||this.camera.corners.length!==4)
       throw Error('حدد أربع زوايا للرقعة أولًا');
