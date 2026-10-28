@@ -112,7 +112,7 @@ export class PhysicalChessVision{
         y:((b.y-a.y+g*b.y)*u+(d.y-a.y+h*d.y)*v+a.y)/z};
     };
     const prediction=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject}));
-    const clipped=cropPhysicalBoard(frame,cornerSnapshot);
+    const clipped=cropPhysicalBoard(frame,corners);
     this.worker.postMessage({type:'infer',id,rgba:clipped.rgba,
       width:clipped.width,height:clipped.height},[clipped.rgba.buffer]);
     const output=await prediction;
