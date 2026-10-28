@@ -2,10 +2,10 @@
 export const CAMERA_DIRECTIONS=['w','b','l','r'];
 export function tileToBoardIndex(tile,side='w'){
   const r=7-Math.floor(tile/8),c=tile%8;
-  if(side==='b')return r*8+7-c;
+  if(side==='b')return (7-r)*8+7-c;
   if(side==='l')return (7-c)*8+r;
   if(side==='r')return c*8+(7-r);
-  return (7-r)*8+c;
+  return r*8+c;
 }
 export function visualSquare(file,rank,side='w'){
   const c='abcdefgh'.indexOf(file),r=8-Number(rank);
