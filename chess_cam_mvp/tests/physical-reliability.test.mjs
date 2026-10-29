@@ -67,3 +67,9 @@ test('two fast opposing-colour moves prune unhelpful first moves',()=>{
  assert(r.twoPlyConsidered>0&&r.twoPlyConsidered<150,
    'expected pruned search, got '+r.twoPlyConsidered);
 });
+
+test('a single moved white piece with a mistaken type is legal evidence',()=>{
+ const r=inferPhysicalMoves(new Chess(),[det('e4','B',.94),det('d2','P',.93)]);
+ assert.equal(r.kind,'move',JSON.stringify(r));
+ assert.equal(r.key,'e2e4');assert.equal(r.typeRelaxed,true);
+});

@@ -5,7 +5,7 @@ import {applyH} from './homography.js';
 import {cropPhysicalBoard} from './physical-crop.js';
 import {scoreChessboardQuad,expandQuadToPieces} from './physical-calibration.js';
 import {inferPhysicalMoves,SquareEvidence,observedSquares,OcclusionGuard,OrientationLock} from './physical-evidence.js';
-import {physicalOrientation,orientationFromPosition,tileToBoardIndex} from './physical-orientation.js';
+import {physicalOrientation,orientationFromPosition,tileToBoardIndex,retainMappedOrientation} from './physical-orientation.js';
 const boardChars=game=>game.board().flat().map(p=>p?(p.color==='w'?p.type.toUpperCase():p.type):'1');
 export class PhysicalChessVision{
   constructor(camera){
@@ -80,7 +80,9 @@ export class PhysicalChessVision{
         const mapped=mapPhysicalDetections(pieces,point);
         const vote=orientationFromPosition(mapped.detections,position);
         side=vote.side;
-        if(side){this.lock.reset();this.lock.update(vote);this.orientation=side;}
+        // Detection can run in the background during a match. Do NOT
+        // silently mutate the established camera-to-board orientation.
+        // Commit this side only when the caller re-acquires the board.
       }
       return {corners:lattice.corners,H:lattice.H,points:points.length,side,
         quality:{...lattice.quality,aligned:lattice.quality.inliers,valid:true,method:'lattice'}};
@@ -202,7 +204,9 @@ export class PhysicalChessVision{
       w:d.w/output.scale,h:d.h/output.scale
     }));
     const mapped=mapPhysicalDetections(detections,point);
-    if(mapped.count<7||mapped.count>35)
+    // Partial camera views can contain only a few pieces. Chess-state and
+    // multi-frame confirmation protect against accepting weak evidence.
+    if(mapped.count<4||mapped.count>35)
       return {result:{kind:'unreliable',reason:'insufficient-physical-pieces'},
         decoded:null,detections:mapped.detections,count:mapped.count,
         stats:{inference:output.ms,backend:this.backend}};
@@ -216,7 +220,8 @@ export class PhysicalChessVision{
     // colour centroids are only a fallback before any position is known.
     const byPosition=orientationFromPosition(mapped.detections,boardChars(game));
     const proposal=byPosition.verified?byPosition:physicalOrientation(mapped.detections);
-    if(manual==='auto')this.orientation=this.lock.update(proposal);
+    if(manual==='auto')
+      this.orientation=retainMappedOrientation(this.orientation,proposal,this.lock);
     const side=manual==='auto'?(this.orientation||this.camera.side):manual;
     if(this.camera.side!==side){this.camera.side=side;this.camera.drawOverlay?.();}
     // Real LeYOLO is sparse. Never treat an invisible/occluded piece as an
@@ -230,7 +235,11 @@ export class PhysicalChessVision{
     }
     // Far fewer pieces than recent scans of this view: likely a hand or arm
     // over the board. Keep observations, but add no 'vacated' evidence.
-    const occluded=this.occlusion.update(mapped.count).occluded;
+    // A zoomed/panned board genuinely contains fewer pieces. Compared
+    // without the visible-board fraction, the occlusion guard permanently
+    // marked partial camera views as an obstructing hand.
+    const occlusion=this.occlusion.update(mapped.count,visible.size/64);
+    const occluded=occlusion.occluded;
     const observed=observedSquares(mapped.detections,side);
     this.evidence.add(game.fen(),observed,occluded?new Set():visible);
     const snap=this.evidence.snapshot();
@@ -245,11 +254,17 @@ export class PhysicalChessVision{
       temporal.kind==='move'||instant?.kind!=='move'?temporal:
       {kind:'uncertain',reason:'single-frame-only',best:instant};
     result.occluded=occluded;result.visibleSquares=visible.size;
+    result.viewChanged=occlusion.viewChanged;
+    result.turn=game.turn();result.cameraSide=side;
     // FEN reconstruction is disabled for real pieces: a missing box does
     // NOT mean an empty square (unlike the digital Fenshot model).
     const decoded=null;
     this.last={result,decoded,time:Date.now(),count:mapped.count,
-      detections:mapped.detections,stats:{inference:output.ms}};
+      detections:mapped.detections,
+      stats:{inference:output.ms,white:observed.size?
+        [...observed.values()].filter(d=>d.type===d.type.toUpperCase()).length:0,
+        black:[...observed.values()].filter(d=>d.type===d.type.toLowerCase()).length,
+        visible:visible.size,side}};
     return {result,decoded,count:mapped.count,detections:mapped.detections,
       stats:{inference:output.ms,total:output.ms,backend:this.backend},
       unstable:false};

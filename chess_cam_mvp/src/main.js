@@ -79,6 +79,11 @@ async function recoverPhysicalCorners({manual=false}={}){
     vision.corners=found.corners;
     vision.poseValid=true;vision.drawOverlay();
     resetModelTracking();
+    if(found.side&&$('camera-facing').value==='auto'){
+      physicalVision.orientation=found.side;
+      physicalVision.lock.update({side:found.side,verified:true,margin:9});
+      vision.side=found.side;vision.drawOverlay();
+    }
     if(boardTracker.active)boardTracker.reset();
     $('tracker-state').textContent='تمت استعادة الرقعة الكاملة · '+found.quality.aligned+
       ' نقطة شبكة متطابقة · '+Math.round((found.quality.coverage??1)*100)+
@@ -310,7 +315,9 @@ function setCameraButtons(){
   $('vision-performance').textContent=physicalMode()?
     (mlLastResult?'LeYOLO · '+mlScanCount+' فحوصات · '+
       (physicalVision.last?.stats?.inference??'—')+'ms استدلال · '+
-      boardTracker.state+' · '+boardTracker.inliers+' معالم':
+      'أبيض '+(physicalVision.last?.stats?.white??'—')+
+      ' / أسود '+(physicalVision.last?.stats?.black??'—')+
+      ' · '+boardTracker.state+' · '+boardTracker.inliers+' معالم':
       'LeYOLO + تعقب OpenCV · يتم إعداد النموذج'):
     modelMode()?
     (trainedVision.stats.total?'قراءة '+trainedVision.stats.total+' مللي ثانية · ONNX '+
@@ -353,6 +360,9 @@ function playCameraSequence(sequence){
     const learnedMode=modelMode()||physicalMode();
     const sync=learnedMode?{ok:true}:vision.syncReference(game);
     warningNoSync=learnedMode?false:Boolean(sync?.model?.reliable&&sync.model.baselineMismatch>=5);
+    // The confirmed FEN is the new evidence baseline for BOTH colours.
+    // Stale pieces from a previously accepted position must not linger.
+    if(physicalMode())physicalVision.evidence.reset(game.fen());
     mlCandidate='';mlAgreement=0;
     if(warningNoSync)autoScan=false;
     unmatchedSince=0;lastRecognizedAt=Date.now();
@@ -712,7 +722,8 @@ $('resync').addEventListener('click',()=>{
     if(!window.confirm('هل لوحة ChessCam الرقمية مطابقة تمامًا للرقعة الظاهرة الآن بالكاميرا؟ إذا كانت مختلفة، صحّح النقلات أولًا أو استورد FEN.'))return;
     hideSuggestion();
     const model=vision.saveReference(game);
-    autoScan=true;warningNoSync=modelMode()?false:Boolean(model?.reliable&&model.baselineMismatch>=5);
+    autoScan=true;warningNoSync=(modelMode()||physicalMode())?
+      false:Boolean(model?.reliable&&model.baselineMismatch>=5);
     resetModelTracking();if(modelMode())trainedVision.warmUp();else if(physicalMode())physicalVision.warmUp();unmatchedSince=0;
     lastReadAt=0;lastScanStatus='';stableHits=0;stableKey='';
     lastRecognizedAt=Date.now();

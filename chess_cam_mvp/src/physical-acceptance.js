@@ -13,7 +13,12 @@ export function physicalRecognitionProfile(name='balanced'){
  }
 }
 export function physicalCandidateDecision(result,scans,name='balanced',repeat=1){
- const policy=physicalRecognitionProfile(name);
+ const base=physicalRecognitionProfile(name);
+ const policy=result?.typeRelaxed?{
+   ...base,minScans:Math.max(base.minScans,3),
+   agreement:Math.max(base.agreement,2),
+   minMargin:Math.max(base.minMargin,1.65)
+ }:base;
  if(!result||result.kind!=='move')return {accept:false,reason:'no-move',policy};
  if(scans<policy.minScans)return {accept:false,reason:'needs-observations',policy};
  if(result.confidence<policy.minConfidence)return {accept:false,reason:'low-confidence',policy};

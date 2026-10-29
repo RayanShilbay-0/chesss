@@ -2,6 +2,10 @@
 import {tileToBoardIndex} from './physical-orientation.js';
 const piece=p=>p?(p.color==='w'?p.type.toUpperCase():p.type):'1';
 const chars=g=>g.board().flat().map(piece);
+const sameColour=(a,b)=>a!=='1'&&b!=='1'&&
+  (a===a.toUpperCase())===(b===b.toUpperCase());
+const isNovelObservation=(before,observed)=>
+  before==='1'||!sameColour(before,observed.type);
 function observedMap(detections,side){
  const seen=new Map();
  for(const d of detections){
@@ -45,18 +49,31 @@ export class SquareEvidence{
       let best=null,score=0,total=0;
       for(const [t,v] of Object.entries(m)){total+=v;if(v>score){score=v;best=t;}}
       // Normalise to a confidence: agreement across scans, capped below 1.
-      if(score>=this.minScore)seen.set(i,{type:best,confidence:Math.min(.97,score/Math.max(total,1)*Math.min(1,score))});
+      if(score>=this.minScore){
+        const sameColor=Object.entries(m).reduce((sum,[type,value])=>
+          sum+(sameColour(type,best)?value:0),0);
+        seen.set(i,{type:best,
+          confidence:Math.min(.97,score/Math.max(total,1)*Math.min(1,score)),
+          colorConfidence:Math.min(.97,sameColor/Math.max(total,1)*Math.min(1,sameColor))});
+      }
     }
     for(const [i,n] of this.missing)if(n>=this.emptyAfter&&!seen.has(i))empty.add(i);
     return {seen,empty};
   }
 }
 function evidenceScore(before,after,seen,empty=new Set()){
- let rating=0,explained=0,strong=0;
+ let rating=0,explained=0,strong=0,colorOnly=0;
  for(const [i,d] of seen){
   if(before[i]===d.type)continue;
   if(after[i]===d.type){
     rating+=3.1*d.confidence;explained++;strong=Math.max(strong,d.confidence);
+  }else if(sameColour(after[i],d.type)&&isNovelObservation(before[i],d)){
+    // The wooden piece may be called B/P or R/Q at a steep camera angle.
+    // Colour + a previously empty/opponent-occupied destination is useful
+    // evidence, but less trustworthy than an exact class match.
+    const conf=d.colorConfidence??d.confidence;
+    rating+=2.1*conf;explained++;strong=Math.max(strong,conf);
+    colorOnly++;
   }else rating-=.48*d.confidence;
  }
  for(let i=0;i<64;i++){
@@ -70,15 +87,19 @@ function evidenceScore(before,after,seen,empty=new Set()){
   }
   if(after[i]===obs.type&&before[i]!==obs.type)rating+=1.1*obs.confidence;
   else if(after[i]==='1'&&obs.type===before[i])rating-=2.9*obs.confidence;
+  else if(after[i]!=='1'&&sameColour(after[i],obs.type)&&
+          isNovelObservation(before[i],obs))
+    rating+=.72*(obs.colorConfidence??obs.confidence);
   else if(after[i]!=='1'&&obs.type!==after[i])rating-=1.25*obs.confidence;
  }
- return {rating,explained,strong};
+ return {rating,explained,strong,colorOnly};
 }
 export function observedSquares(detections,side){return observedMap(detections,side);}
 export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,maxTwo=true,observed=null,empty=new Set()}={}){
  const side=typeof whiteBottom==='boolean'?(whiteBottom?'w':'b'):orientation;
  const seen=observed||observedMap(detections,side),before=chars(game);
- const newPieces=[...seen].filter(([i,d])=>before[i]!==d.type&&d.confidence>=.44);
+ const newPieces=[...seen].filter(([i,d])=>isNovelObservation(before[i],d)&&
+   Math.max(d.confidence,d.colorConfidence??0)>=.44);
  const unexpected=newPieces.length;
  if(unexpected===0)return {kind:'unchanged',count:seen.size,reason:'no-visible-piece-change',twoPlyConsidered:0};
  const candidates=[],first=game.moves({verbose:true});
@@ -121,6 +142,7 @@ export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,
  if(margin<1.2)return {kind:'uncertain',count:seen.size,margin,reason:'ambiguous',best:top,twoPlyConsidered};
  return {kind:'move',key:top.key,sequence:top.sequence,score:top.rating,
   confidence:top.strong,margin,count:seen.size,reason:'sparse-physical-evidence',
+  typeRelaxed:top.colorOnly>0,
   explained:top.explained,twoPlyConsidered};
 }
 
@@ -128,13 +150,39 @@ export function inferPhysicalMoves(game,detections,{orientation='w',whiteBottom,
 // with distance and angle, so compare against the recent detection counts
 // for this view rather than the number of pieces the position predicts.
 export class OcclusionGuard{
-  constructor({window=8,ratio=.55,minHistory=3}={}){this.window=window;this.ratio=ratio;this.minHistory=minHistory;this.counts=[];}
-  reset(){this.counts=[];}
-  update(count){
-    const sorted=[...this.counts].sort((a,b)=>a-b),median=sorted[sorted.length>>1];
-    const occluded=this.counts.length>=this.minHistory&&count<median*this.ratio;
-    if(!occluded){this.counts.push(count);if(this.counts.length>this.window)this.counts.shift();}
-    return {occluded,median:median??null};
+  constructor({window=8,ratio=.55,minHistory=3,viewShift=.17,rebaseAfter=7}={}){
+    this.window=window;this.ratio=ratio;this.minHistory=minHistory;
+    this.viewShift=viewShift;this.rebaseAfter=rebaseAfter;this.reset();
+  }
+  reset(){this.counts=[];this.views=[];this.low=[];}
+  update(count,visibleFraction=1){
+    const view=Math.max(0,Math.min(1,visibleFraction));
+    const medianOf=a=>{const sorted=[...a].sort((x,y)=>x-y);return sorted[sorted.length>>1];};
+    const median=this.counts.length?medianOf(this.counts):null;
+    const priorView=this.views.length?medianOf(this.views):null;
+    // A pan/zoom changes the observable board area; it is NOT a hand
+    // occluding an otherwise unchanged camera view.
+    const viewChanged=priorView!==null&&Math.abs(view-priorView)>=this.viewShift;
+    if(viewChanged)this.reset();
+    const reference=this.counts.length>=this.minHistory?medianOf(this.counts):null;
+    const occluded=reference!==null&&count<reference*this.ratio;
+    if(occluded){
+      this.low.push(count);
+      if(this.low.length>this.rebaseAfter)this.low.shift();
+      // A steady, lasting reduced view can otherwise remain occluded
+      // forever. No instantaneous jump, and no guess while visibility is
+      // changing rapidly.
+      if(this.low.length>=this.rebaseAfter&&
+          Math.max(...this.low)-Math.min(...this.low)<=3&&count>=4){
+        this.reset();this.counts.push(count);this.views.push(view);
+        return {occluded:false,median:count,viewChanged:true,reacquired:true};
+      }
+    }else{
+      this.low=[];
+      this.counts.push(count);this.views.push(view);
+      if(this.counts.length>this.window){this.counts.shift();this.views.shift();}
+    }
+    return {occluded,median:reference??count,viewChanged};
   }
 }
 // Orientation lock: the board map keeps fixed board coordinates, so the

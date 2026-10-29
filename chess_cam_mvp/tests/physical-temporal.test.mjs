@@ -91,3 +91,46 @@ test('orientation lock ignores weak contrary votes but follows strong sustained 
   for(let k=0;k<3;k++)l.update({verified:true,side:'l',margin:6});
   assert.equal(l.update({verified:true,side:'l',margin:6}),'l');
 });
+
+test('occlusion guard resets its baseline when zooming to a partial board',()=>{
+ const g=new OcclusionGuard();
+ for(const n of [18,19,18,17])assert.equal(g.update(n,1).occluded,false);
+ assert.equal(g.update(8,.48).occluded,false);
+ for(const n of [8,7,8,9])assert.equal(g.update(n,.48).occluded,false);
+ assert.equal(g.update(3,.48).occluded,true,'a hand still obstructs a stable view');
+ assert.equal(g.update(8,.48).occluded,false,'hand removal restores tracking');
+});
+test('occlusion guard recovers after sustained stable lower model recall',()=>{
+ const g=new OcclusionGuard({rebaseAfter:5});
+ for(const n of [18,18,17,19])g.update(n);
+ for(let i=0;i<4;i++)assert.equal(g.update(7).occluded,true);
+ assert.equal(g.update(7).occluded,false,'a sustained changed view must not block forever');
+ assert.equal(g.update(8).occluded,false);
+});
+test('white moves remain recognized when LeYOLO consistently mistakes white pawn for bishop',()=>{
+ const game=new Chess(),ev=new SquareEvidence();
+ const det=(square,type,confidence=.93)=>{
+  const i=SQ(square);return {tile:tileOf(i),className:type,confidence};
+ };
+ let result;
+ for(let i=0;i<4;i++){
+   const obs=observedSquares([det('e4',i%2?'B':'P'),det('d2','P'),det('e7','p')],'w');
+   ev.add(game.fen(),obs,new Set([...Array(64).keys()]));
+   const snap=ev.snapshot();
+   result=inferPhysicalMoves(game,[],{observed:snap.seen,empty:snap.empty});
+ }
+ assert.equal(result.kind,'move',JSON.stringify(result));
+ assert.equal(result.key,'e2e4');
+ assert.equal(result.typeRelaxed,true);
+ assert(result.confidence>=.55);
+});
+test('wrong piece type on stationary white piece never creates phantom move',()=>{
+ const game=new Chess(),ev=new SquareEvidence(),idx=SQ('d2');
+ const wrong=new Map([[idx,{type:'B',confidence:.98}]]);
+ for(let i=0;i<4;i++){
+   ev.add(game.fen(),wrong,new Set([...Array(64).keys()]));
+   const snap=ev.snapshot();
+   const result=inferPhysicalMoves(game,[],{observed:snap.seen,empty:snap.empty});
+   assert.equal(result.kind,'unchanged');
+ }
+});

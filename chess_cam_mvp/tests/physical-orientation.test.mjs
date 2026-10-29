@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {tileToBoardIndex,visualSquare,physicalOrientation} from '../src/physical-orientation.js';
+import {tileToBoardIndex,visualSquare,physicalOrientation,retainMappedOrientation} from '../src/physical-orientation.js';
+import {OrientationLock} from '../src/physical-evidence.js';
 const tile=(r,c)=>(7-r)*8+c;
 for(const [side,r,c] of [
  ['w',7,0],['b',0,7],['l',0,0],['r',7,7]
@@ -27,4 +28,18 @@ test('black bottom remains different from player color and white top',()=>{
   det.push({tile:tile(7,c),className:'p',confidence:.8});
  }
  assert.equal(physicalOrientation(det).side,'b');
+});
+
+test('stable mapped chessboard must not flip side even after 20 contrary white/black votes',()=>{
+ const lock=new OrientationLock();
+ lock.update({side:'w',verified:true,margin:9});
+ let side='w';
+ for(let i=0;i<20;i++){
+   side=retainMappedOrientation(side,{side:'b',verified:true,margin:14},lock);
+   assert.equal(side,'w');
+ }
+});
+test('new board acquisition may choose orientation after previous map was discarded',()=>{
+ const lock=new OrientationLock();
+ assert.equal(retainMappedOrientation(null,{side:'b',verified:true,margin:9},lock),'b');
 });

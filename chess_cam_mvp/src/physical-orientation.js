@@ -14,6 +14,13 @@ export function visualSquare(file,rank,side='w'){
   if(side==='r')return {r:7-c,c:r};
   return {r,c};
 }
+// BoardMemory's camera corners remain anchored to the original physical
+// squares during pan/zoom/rotation. A newly misidentified piece must never
+// flip those coordinates in the middle of the game. Only an independently
+// re-acquired complete board or a user choice may change this orientation.
+export function retainMappedOrientation(current,proposal,lock){
+  return current||lock.update(proposal);
+}
 export function physicalOrientation(detections){
   const sums={P:{x:0,y:0,n:0},p:{x:0,y:0,n:0}};
   for(const d of detections){

@@ -25,3 +25,11 @@ test('careful mode requires an independent repeated candidate',()=>{
  assert.equal(physicalCandidateDecision(confident,3,'careful',1).accept,false);
  assert.equal(physicalCandidateDecision(confident,3,'careful',2).accept,true);
 });
+
+test('colour-only chess piece recognition requires extra independent confirmation',()=>{
+ const result={kind:'move',key:'e2e4',typeRelaxed:true,confidence:.85,margin:2.1};
+ assert.equal(physicalCandidateDecision(result,2,'balanced',1).accept,false);
+ assert.equal(physicalCandidateDecision(result,3,'balanced',1).accept,false);
+ assert.equal(physicalCandidateDecision(result,3,'balanced',2).accept,true);
+ assert.equal(physicalCandidateDecision({...result,margin:1.4},4,'balanced',3).accept,false);
+});
